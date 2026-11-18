@@ -26,10 +26,25 @@ Inbound rules (everything else denied):
 | TCP | 21115-21117 | any (RustDesk ID/relay) |
 | UDP | 21116 | any (RustDesk registration) |
 
-The open-source RustDesk server only accepts device registration over
-UDP 21116, so for now every site needs outbound **TCP 21115-21117 and
-UDP 21116** to `rd.sfohosting.dk` in addition to 443. WebSocket-only
-operation (443 only) needs our extended hbbs, which is in progress.
+Two kinds of sites:
+
+- **Normal sites:** outbound TCP 443, TCP 21115-21117 and UDP 21116.
+- **443-only sites:** install with `install.ps1 -WebSocket`; the client then
+  registers and connects over WebSocket on 443 only. This uses our hbbs build
+  (`rendezvous/`, image `ghcr.io/zeonos/rd-hbbs`), which adds WebSocket
+  registration to the open-source server.
+
+### hbbs image
+
+`ghcr.io/zeonos/rd-hbbs` is built by GitHub Actions from `rendezvous/` on every
+change to `main`. It is private by default; either make the package public
+(GitHub → your profile → Packages → rd-hbbs → Package settings → Change
+visibility; the code is AGPL anyway and the image holds no secrets) or log the
+server in once with a classic token that has `read:packages`:
+
+```bash
+echo <token> | docker login ghcr.io -u zeonos --password-stdin
+```
 
 ## 3. Install
 

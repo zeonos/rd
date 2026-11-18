@@ -31,7 +31,8 @@ services:
       - hbbr
 
   hbbs:
-    image: rustdesk/rustdesk-server:${RUSTDESK_SERVER_TAG:-latest}
+    # Our build (rendezvous/): upstream hbbs + device registration over WebSocket.
+    image: ${HBBS_IMAGE:-ghcr.io/zeonos/rd-hbbs:latest}
     restart: unless-stopped
     # -r: relay address handed to clients. A domain (not an IP) makes
     #     WebSocket clients use wss://$DOMAIN/ws/relay.
@@ -49,7 +50,7 @@ services:
       - hbbr
 
   hbbr:
-    image: rustdesk/rustdesk-server:${RUSTDESK_SERVER_TAG:-latest}
+    image: ${HBBS_IMAGE:-ghcr.io/zeonos/rd-hbbs:latest}
     restart: unless-stopped
     command: hbbr -k _
     ports:

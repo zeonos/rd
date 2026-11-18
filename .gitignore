@@ -1,0 +1,20 @@
+# server runtime
+deploy/.env
+deploy/data/
+
+# Go
+server/bin/
+*.test
+coverage.out
+
+# editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# client build outputs
+client/target/
+client/flutter/build/
+client/flutter/.dart_tool/
+dist/

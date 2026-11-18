@@ -1,0 +1,87 @@
+# RD server stack: Caddy (only public listener, TCP 443) in front of
+# RustDesk hbbs/hbbr (WebSocket only) and our API server + PostgreSQL.
+#
+#   cp .env.example .env   # then edit
+#   docker compose up -d
+#
+# Nothing but Caddy publishes a port. Clients connect to
+#   wss://$DOMAIN/ws/id     -> hbbs:21118
+#   wss://$DOMAIN/ws/relay  -> hbbr:21119
+#   https://$DOMAIN/api/... -> api:8080
+
+name: rd
+
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"      # ACME HTTP challenge + redirect to https
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - hbbs
+      - hbbr
+
+  hbbs:
+    image: rustdesk/rustdesk-server:${RUSTDESK_SERVER_TAG:-latest}
+    restart: unless-stopped
+    # -r: relay address handed to clients. A domain (not an IP) makes
+    #     WebSocket clients use wss://$DOMAIN/ws/relay.
+    # -k _: only accept clients that carry this server's public key.
+    command: hbbs -r ${DOMAIN}:21117 -k _
+    volumes:
+      - ./data/rustdesk:/root
+    depends_on:
+      - hbbr
+
+  hbbr:
+    image: rustdesk/rustdesk-server:${RUSTDESK_SERVER_TAG:-latest}
+    restart: unless-stopped
+    command: hbbr -k _
+    volumes:
+      - ./data/rustdesk:/root
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: rd
+      POSTGRES_USER: rd
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    command: >
+      postgres -c shared_buffers=64MB -c max_connections=30
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rd -d rd"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ../server
+    restart: unless-stopped
+    environment:
+      RD_DATABASE_URL: postgres://rd:${POSTGRES_PASSWORD}@postgres:5432/rd?sslmode=disable
+      RD_LISTEN: ":8080"
+      RD_PUBLIC_URL: https://${DOMAIN}
+      RD_ADMIN_USER: ${ADMIN_USER:-admin}
+      RD_ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      RD_ALERT_NTFY_URL: ${ALERT_NTFY_URL:-}
+      RD_TRUSTED_PROXY: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ["api"]
+
+volumes:
+  caddy_data:
+  caddy_config:
+  pgdata:

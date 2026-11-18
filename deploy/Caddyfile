@@ -1,0 +1,31 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	# RustDesk rendezvous (ID server) over WebSocket
+	handle /ws/id* {
+		reverse_proxy hbbs:21118
+	}
+
+	# RustDesk relay over WebSocket
+	handle /ws/relay* {
+		reverse_proxy hbbr:21119
+	}
+
+	# Our API server (login, devices, groups, enrolment)
+	handle /api/* {
+		reverse_proxy api:8080
+	}
+
+	# Web console (phase 2) - served by the API container
+	handle {
+		reverse_proxy api:8080
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+}

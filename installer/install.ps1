@@ -50,10 +50,11 @@ Write-Host "Installer exit code: $($p.ExitCode)"
 # Locate the installed copy (install dir is named after the app: "RD").
 $exe = $null
 for ($i = 0; $i -lt 60 -and -not $exe; $i++) {
-    foreach ($dir in @((Join-Path $env:ProgramFiles "RD"), (Join-Path $env:ProgramFiles "RustDesk"))) {
+    # Only our own install folder: a stock RustDesk next to RD must never be touched.
+    foreach ($dir in @((Join-Path $env:ProgramFiles "RD"))) {
         if (Test-Path $dir) {
             $exe = Get-ChildItem -Path $dir -Filter *.exe -File |
-                Where-Object { $_.Name -match '^(rd|rustdesk)\.exe$' } | Select-Object -First 1
+                Where-Object { $_.Name -ieq 'RD.exe' } | Select-Object -First 1
             if ($exe) { break }
         }
     }

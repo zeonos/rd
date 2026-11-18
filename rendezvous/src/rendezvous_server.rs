@@ -43,6 +43,8 @@ use std::{
 #[derive(Clone, Debug)]
 enum Data {
     Msg(Box<RendezvousMessage>, SocketAddr),
+    // RD: registration message received over WebSocket, handled like UDP
+    Ws(BytesMut, SocketAddr),
     RelayServers0(String),
     RelayServers(RelayServers),
 }
@@ -328,7 +330,17 @@ impl RendezvousServer {
                 }
                 Some(data) = rx.recv() => {
                     match data {
-                        Data::Msg(msg, addr) => { allow_err!(socket.send(msg.as_ref(), addr).await); }
+                        Data::Msg(msg, addr) => {
+                            // RD: WebSocket-registered peers get it over their WebSocket
+                            if !crate::ws_peers::try_send(msg.as_ref(), addr) {
+                                allow_err!(socket.send(msg.as_ref(), addr).await);
+                            }
+                        }
+                        Data::Ws(bytes, addr) => {
+                            if let Err(err) = self.handle_udp(&bytes, addr, socket, key).await {
+                                log::error!("ws registration failure: {}", err);
+                            }
+                        }
                         Data::RelayServers0(rs) => { self.parse_relay_servers(&rs); }
                         Data::RelayServers(rs) => { self.relay_servers = Arc::new(rs); }
                     }
@@ -424,7 +436,7 @@ impl RendezvousServer {
                                 rendezvous_servers: (*self.rendezvous_servers).clone(),
                                 ..Default::default()
                             });
-                            socket.send(&msg_out, addr).await?;
+                            crate::ws_peers::send(socket, &msg_out, addr).await?;
                         }
                     }
                 }
@@ -511,7 +523,7 @@ impl RendezvousServer {
                         result: register_pk_response::Result::OK.into(),
                         ..Default::default()
                     });
-                    socket.send(&msg_out, addr).await?
+                    crate::ws_peers::send(socket, &msg_out, addr).await?
                 }
                 Some(rendezvous_message::Union::PunchHoleRequest(ph)) => {
                     // UDP PunchHoleRequest is intentionally unsupported.
@@ -648,6 +660,19 @@ impl RendezvousServer {
                     msg_out.set_test_nat_response(res);
                     Self::send_to_sink(sink, msg_out).await;
                 }
+                // RD: WebSocket clients register here instead of over UDP
+                Some(rendezvous_message::Union::RegisterPeer(_))
+                | Some(rendezvous_message::Union::RegisterPk(_))
+                    if ws =>
+                {
+                    self.tx.send(Data::Ws(BytesMut::from(bytes), addr)).ok();
+                    return true;
+                }
+                Some(rendezvous_message::Union::OnlineRequest(or)) if ws => {
+                    let msg_out = self.online_response(or.peers).await;
+                    Self::send_to_sink(sink, msg_out).await;
+                    return true;
+                }
                 Some(rendezvous_message::Union::RegisterPk(_)) => {
                     let res = register_pk_response::Result::NOT_SUPPORT;
                     let mut msg_out = RendezvousMessage::new();
@@ -704,7 +729,7 @@ impl RendezvousServer {
             request_pk,
             ..Default::default()
         });
-        socket.send(&msg_out, socket_addr).await
+        crate::ws_peers::send(socket, &msg_out, socket_addr).await
     }
 
     #[inline]
@@ -903,6 +928,25 @@ impl RendezvousServer {
         stream.send(&msg_out).await?;
 
         Ok(())
+    }
+
+    // RD: handle_online_request for WebSocket connections
+    async fn online_response(&mut self, peers: Vec<String>) -> RendezvousMessage {
+        let mut states = BytesMut::zeroed((peers.len() + 7) / 8);
+        for (i, peer_id) in peers.iter().enumerate() {
+            if let Some(peer) = self.pm.get_in_memory(peer_id).await {
+                let elapsed = peer.read().await.last_reg_time.elapsed().as_millis() as i64;
+                if elapsed < REG_TIMEOUT {
+                    states[i / 8] |= 0x01 << (7 - i % 8);
+                }
+            }
+        }
+        let mut msg_out = RendezvousMessage::new();
+        msg_out.set_online_response(OnlineResponse {
+            states: states.into(),
+            ..Default::default()
+        });
+        msg_out
     }
 
     #[inline]
@@ -1288,13 +1332,30 @@ impl RendezvousServer {
             .await??;
             let (a, mut b) = ws_stream.split();
             sink = Some(Sink::Ws(a));
-            while let Ok(Some(Ok(msg))) = timeout(30_000, b.next()).await {
-                if let tungstenite::Message::Binary(bytes) = msg {
-                    if !self.handle_tcp(&bytes, &mut sink, addr, key, ws).await {
-                        break;
+            // RD: messages for this peer (see ws_peers) are written to this socket
+            let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Bytes>();
+            crate::ws_peers::add(addr, out_tx);
+            loop {
+                tokio::select! {
+                    res = timeout(30_000, b.next()) => {
+                        let Ok(Some(Ok(msg))) = res else { break };
+                        if let tungstenite::Message::Binary(bytes) = msg {
+                            // A registered device sends everything over this one socket
+                            // (RelayResponse, LocalAddr, ...), so keep it open until the
+                            // client closes it or goes quiet.
+                            let _ = self.handle_tcp(&bytes, &mut sink, addr, key, ws).await;
+                        }
+                    }
+                    Some(bytes) = out_rx.recv() => {
+                        if let Some(Sink::Ws(ws_sink)) = sink.as_mut() {
+                            if ws_sink.send(tungstenite::Message::Binary(bytes)).await.is_err() {
+                                break;
+                            }
+                        }
                     }
                 }
             }
+            crate::ws_peers::remove(addr);
         } else {
             let mut framed = Framed::new(stream, BytesCodec::new());
             framed.codec_mut().set_max_packet_length(*MAX_MESSAGE);
@@ -1461,7 +1522,7 @@ async fn send_rk_res(
         result: res.into(),
         ..Default::default()
     });
-    socket.send(&msg_out, addr).await
+    crate::ws_peers::send(socket, &msg_out, addr).await
 }
 
 async fn create_udp_listener(

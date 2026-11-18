@@ -1,0 +1,48 @@
+# Tests and builds our hbbs/hbbr image (rendezvous/, rustdesk-server + WebSocket
+# registration). On main it is pushed to ghcr.io/zeonos/rd-hbbs.
+name: RustDesk server (hbbs/hbbr)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["rendezvous/**", ".github/workflows/rendezvous.yml"]
+  pull_request:
+    paths: ["rendezvous/**", ".github/workflows/rendezvous.yml"]
+
+concurrency:
+  group: rendezvous-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rendezvous
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: rendezvous
+      - run: cargo test --locked --lib ws_peers
+      - run: cargo build --locked --release --bin hbbs --bin hbbr
+
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Build image
+        run: docker build -f rendezvous/Dockerfile.rd -t ghcr.io/zeonos/rd-hbbs:${{ github.sha }} rendezvous
+      - name: Push to GitHub Container Registry (main only)
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker tag ghcr.io/zeonos/rd-hbbs:${{ github.sha }} ghcr.io/zeonos/rd-hbbs:latest
+          docker push ghcr.io/zeonos/rd-hbbs:${{ github.sha }}
+          docker push ghcr.io/zeonos/rd-hbbs:latest

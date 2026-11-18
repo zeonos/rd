@@ -11,7 +11,7 @@ In the repo: **Settings → Secrets and variables → Actions → Variables**, a
 
 | Variable | Value |
 | --- | --- |
-| `RD_SERVER_KEY` | contents of `/opt/rd/deploy/data/rustdesk/id_ed25519.pub` on the server |
+| `RD_SERVER_KEY` | optional: overrides the key already in `client/rd/config.json` |
 
 The key is public (it lets clients verify the server), so a variable is fine.
 Alternatively add `"key": "<value>"` to `override-settings` in `client/rd/config.json`.

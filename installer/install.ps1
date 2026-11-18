@@ -12,6 +12,10 @@
   powershell -ExecutionPolicy Bypass -File install.ps1 -Token rde_xxx -Group "Office/Rack 1"
 
 .EXAMPLE
+  # Site that only allows outbound 443
+  powershell -ExecutionPolicy Bypass -File install.ps1 -Token rde_xxx -WebSocket
+
+.EXAMPLE
   # Token already bound to a group (rd-api token create --group ...): no -Group needed
   powershell -ExecutionPolicy Bypass -File install.ps1 -Token rde_xxx
 #>
@@ -19,7 +23,9 @@
 param(
     [Parameter(Mandatory = $true)][string]$Token,
     [string]$Group = "",
-    [string]$Name = $env:COMPUTERNAME
+    [string]$Name = $env:COMPUTERNAME,
+    # Sites that only allow outbound 443: use WebSocket instead of the RustDesk ports.
+    [switch]$WebSocket
 )
 
 $ErrorActionPreference = "Stop"
@@ -73,6 +79,11 @@ for ($i = 0; $i -lt 60; $i++) {
 }
 if ($id -notmatch '^\d{6,}$') { Fail "The service did not start (no ID after 2 minutes)." }
 Write-Host "Device ID: $id"
+
+if ($WebSocket) {
+    $out = (& $exe --option allow-websocket Y 2>&1 | Out-String).Trim()
+    Write-Host "WebSocket mode (443 only) enabled. $out"
+}
 
 # --- 2. unattended password ---------------------------------------------------
 $bytes = New-Object byte[] 24

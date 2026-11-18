@@ -350,6 +350,50 @@ func (p *Postgres) DeleteGroup(ctx context.Context, id int64) error {
 	if isFKViolation(err) {
 		return ErrConflict
 	}
+	if err != nil {
+		return err
+	}
+	_, err = p.pool.Exec(ctx, `DELETE FROM policies WHERE scope_id=$1`, id)
+	return err
+}
+
+// --- policies ---
+
+func (p *Postgres) ListPolicies(ctx context.Context) (map[int64]map[string]string, error) {
+	rows, err := p.pool.Query(ctx, `SELECT scope_id, "values" FROM policies`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]map[string]string{}
+	for rows.Next() {
+		var id int64
+		var v map[string]string
+		if err := rows.Scan(&id, &v); err != nil {
+			return nil, err
+		}
+		out[id] = v
+	}
+	return out, rows.Err()
+}
+
+func (p *Postgres) SetPolicy(ctx context.Context, scope int64, values map[string]string) error {
+	if scope != AccountScope {
+		var exists bool
+		if err := p.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM device_groups WHERE id=$1)`, scope).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return ErrNotFound
+		}
+	}
+	if len(values) == 0 {
+		_, err := p.pool.Exec(ctx, `DELETE FROM policies WHERE scope_id=$1`, scope)
+		return err
+	}
+	_, err := p.pool.Exec(ctx,
+		`INSERT INTO policies(scope_id, "values", updated_at) VALUES($1,$2,now())
+		 ON CONFLICT (scope_id) DO UPDATE SET "values"=EXCLUDED."values", updated_at=now()`, scope, values)
 	return err
 }
 

@@ -110,6 +110,10 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/admin/tokens", s.requireAdmin(s.adminListTokens))
 	m.HandleFunc("POST /api/admin/tokens", s.requireAdmin(s.adminCreateToken))
 	m.HandleFunc("DELETE /api/admin/tokens/{id}", s.requireAdmin(s.adminDeleteToken))
+	m.HandleFunc("GET /api/admin/policy/catalogue", s.requireAdmin(s.adminPolicyCatalogue))
+	m.HandleFunc("GET /api/admin/policies", s.requireAdmin(s.adminListPolicies))
+	m.HandleFunc("PUT /api/admin/policies/{scope}", s.requireAdmin(s.adminSetPolicy))
+	m.HandleFunc("GET /api/admin/devices/{id}/policy", s.requireAdmin(s.adminDevicePolicy))
 
 	m.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")

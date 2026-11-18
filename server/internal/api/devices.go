@@ -50,6 +50,9 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if d.Hostname == "" {
 		resp["sysinfo"] = true // never reported: ask for it once
 	}
+	for k, v := range s.strategyFor(r.Context(), d, req.ModifiedAt) {
+		resp[k] = v
+	}
 	writeJSON(w, http.StatusOK, resp)
 }
 

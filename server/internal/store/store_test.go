@@ -19,7 +19,7 @@ func stores(t *testing.T) map[string]Store {
 		if err != nil {
 			t.Fatalf("postgres: %v", err)
 		}
-		for _, tbl := range []string{"sessions", "devices", "enroll_tokens", "device_groups", "users"} {
+		for _, tbl := range []string{"policies", "sessions", "devices", "enroll_tokens", "device_groups", "users"} {
 			if _, err := p.pool.Exec(ctx, "DELETE FROM "+tbl); err != nil {
 				t.Fatal(err)
 			}
@@ -91,6 +91,21 @@ func TestStore(t *testing.T) {
 			}
 			if err := s.DeleteGroup(ctx, office.ID); !errors.Is(err, ErrConflict) {
 				t.Fatalf("delete parent with child: %v", err)
+			}
+
+			// policies
+			if err := s.SetPolicy(ctx, AccountScope, map[string]string{"enable-audio": "N"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.SetPolicy(ctx, rack.ID, map[string]string{"enable-audio": "Y"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.SetPolicy(ctx, 999999, map[string]string{"enable-audio": "Y"}); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("policy for missing group: %v", err)
+			}
+			pol, err := s.ListPolicies(ctx)
+			if err != nil || pol[AccountScope]["enable-audio"] != "N" || pol[rack.ID]["enable-audio"] != "Y" {
+				t.Fatalf("policies: %v %v", err, pol)
 			}
 
 			// tokens
@@ -171,6 +186,12 @@ func TestStore(t *testing.T) {
 			}
 			if err := s.DeleteGroup(ctx, rack.ID); err != nil {
 				t.Fatalf("delete empty group: %v", err)
+			}
+			if pol, _ = s.ListPolicies(ctx); len(pol) != 1 {
+				t.Fatalf("group policy should go with the group: %v", pol)
+			}
+			if err := s.SetPolicy(ctx, AccountScope, nil); err != nil {
+				t.Fatal(err)
 			}
 		})
 	}

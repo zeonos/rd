@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"fmt"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -190,11 +191,13 @@ func TestDeviceLifecycle(t *testing.T) {
 		t.Fatalf("enrol: %d %q", code, body)
 	}
 
-	// first heartbeat asks for sysinfo
+	// first heartbeat asks for sysinfo and delivers the settings
 	_, body = e.do("POST", "/api/heartbeat", "", map[string]any{"id": "111222333", "uuid": "dXVpZA==", "conns": []int{}})
-	if decode(t, body)["sysinfo"] != true {
-		t.Fatalf("expected sysinfo request: %s", body)
+	hb := decode(t, body)
+	if hb["sysinfo"] != true || hb["strategy"] == nil {
+		t.Fatalf("expected sysinfo request and strategy: %s", body)
 	}
+	version := int64(hb["modified_at"].(float64))
 	h1 := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
 	_, body = e.do("POST", "/api/sysinfo", "", map[string]any{"id": "111222333", "uuid": "dXVpZA==",
 		"hostname": "SRV-SQL1", "os": "Windows Server 2022 Standard", "username": "Administrator", "rd_pw_h1": h1})
@@ -205,9 +208,9 @@ func TestDeviceLifecycle(t *testing.T) {
 	if _, body := e.do("POST", "/api/sysinfo", "", map[string]any{"id": "111222333", "uuid": "b3RoZXI=", "rd_pw_h1": h1}); body != "UUID_MISMATCH" {
 		t.Fatalf("uuid mismatch: %q", body)
 	}
-	_, body = e.do("POST", "/api/heartbeat", "", map[string]any{"id": "111222333", "uuid": "dXVpZA==", "conns": []int{5}})
+	_, body = e.do("POST", "/api/heartbeat", "", map[string]any{"id": "111222333", "uuid": "dXVpZA==", "conns": []int{5}, "modified_at": version})
 	if body != "{}\n" {
-		t.Fatalf("second heartbeat: %q", body)
+		t.Fatalf("second heartbeat with current settings: %q", body)
 	}
 
 	// address book carries the hash and the location tag
@@ -308,4 +311,48 @@ func TestClientIPTrustProxy(t *testing.T) {
 		t.Fatalf("ip %s", ip)
 	}
 	_ = http.StatusOK
+}
+
+func TestPolicyDelivery(t *testing.T) {
+	e := newEnv(t)
+	tok := e.login()
+	ctx := context.Background()
+	g, _ := e.st.EnsureGroupPath(ctx, "Office/Rack 1")
+	e.st.EnrollDevice(ctx, &store.Device{ID: "7", UUID: "u", GroupID: &g.ID, Hostname: "SRV"})
+	office, _ := e.st.FindGroupPath(ctx, "Office")
+
+	if code, body := e.do("PUT", "/api/admin/policies/account", tok, map[string]any{"values": map[string]string{"enable-clipboard": "N", "enable-audio": "N"}}); code != 200 {
+		t.Fatalf("set account policy: %d %s", code, body)
+	}
+	if code, body := e.do("PUT", fmt.Sprintf("/api/admin/policies/%d", office.ID), tok, map[string]any{"values": map[string]string{"enable-clipboard": "Y"}}); code != 200 {
+		t.Fatalf("set group policy: %d %s", code, body)
+	}
+	if code, _ := e.do("PUT", "/api/admin/policies/account", tok, map[string]any{"values": map[string]string{"custom-rendezvous-server": "evil"}}); code != 400 {
+		t.Fatal("unknown setting accepted")
+	}
+
+	hb := func(version int64) map[string]any {
+		_, body := e.do("POST", "/api/heartbeat", "", map[string]any{"id": "7", "uuid": "u", "modified_at": version})
+		return decode(t, body)
+	}
+	first := hb(0)
+	opts := first["strategy"].(map[string]any)["config_options"].(map[string]any)
+	if opts["enable-clipboard"] != "Y" || opts["enable-audio"] != "N" || opts["enable-keyboard"] != "" {
+		t.Fatalf("effective options: %v", opts)
+	}
+	v1 := int64(first["modified_at"].(float64))
+	if _, ok := hb(v1)["strategy"]; ok {
+		t.Fatal("strategy re-sent although device is current")
+	}
+	// moving the device out of Office changes its settings
+	e.do("PATCH", "/api/admin/devices/7", tok, map[string]any{"group": "Home lab"})
+	moved := hb(v1)
+	if moved["strategy"].(map[string]any)["config_options"].(map[string]any)["enable-clipboard"] != "N" {
+		t.Fatalf("after move: %v", moved)
+	}
+	// device view shows the source of each value
+	_, body := e.do("GET", "/api/admin/devices/7/policy", tok, nil)
+	if !strings.Contains(body, `"enable-audio":{"value":"N","source":"Account"}`) {
+		t.Fatalf("device policy: %s", body)
+	}
 }

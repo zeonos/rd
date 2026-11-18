@@ -64,5 +64,30 @@ installed client must be rebuilt and reinstalled.
 ```bash
 cd /opt/rd && git pull
 cd deploy && docker compose --profile api up -d --build
-docker compose logs api | grep -i "admin password"   # first start only
+docker compose logs api | grep admin_password        # first start only: note the password
+docker compose exec -it api rd-api totp-setup admin  # scan/enter the key, confirm with a code
+```
+
+Logins are refused until TOTP is set up. Optional: put an
+[ntfy](https://ntfy.sh) topic URL in `ALERT_NTFY_URL` in `.env` to get a push
+on every login, lockout and enrolment.
+
+Useful commands (all `docker compose exec api rd-api ...`):
+
+| Command | What it does |
+| --- | --- |
+| `token create --group "Office" --max-uses 20 --expires-hours 72` | enrolment token for the installer |
+| `token list` / `token delete <id>` | manage tokens |
+| `device list` | devices, location, online, unattended ready |
+| `device move <id> "Datacenter/Rack A"` | change location |
+| `device rename <id> "SQL01"` | set display name |
+| `group list` / `group add "Home lab"` | locations |
+| `set-password admin` | change your password (signs out all sessions) |
+
+## 7. Updating
+
+```bash
+cd /opt/rd && git pull && cd deploy
+docker compose pull hbbs hbbr caddy
+docker compose --profile api up -d --build
 ```

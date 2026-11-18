@@ -41,7 +41,7 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 # --- 1. install ---------------------------------------------------------------
 $src = Get-ChildItem -Path (Join-Path $PSScriptRoot "rd") -Filter *.exe -File |
     Where-Object { $_.Name -match '^(rustdesk|rd)\.exe$' } | Select-Object -First 1
-if (-not $src) { Fail "Client executable not found next to this script (expected .\rd\rustdesk.exe)." }
+if (-not $src) { Fail "Client executable not found next to this script (expected .\rd\RD.exe)." }
 
 Write-Host "Installing from $($src.FullName)"
 $p = Start-Process -FilePath $src.FullName -ArgumentList "--silent-install" -Wait -PassThru

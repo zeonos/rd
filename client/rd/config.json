@@ -4,7 +4,7 @@
     "custom-rendezvous-server": "rd.sfohosting.dk",
     "relay-server": "rd.sfohosting.dk",
     "api-server": "https://rd.sfohosting.dk",
-    "key": "Gk65jmUJaeMhn1EYhW8mNZ7ue0j37fRfjxdCcZOCbi8=",
+    "key": "Gk65jmUJaeMhnlEYhW8mNZ7ue0j37fRfjxdCcZOCbi8=",
     "allow-websocket": "Y",
     "allow-auto-update": "N",
     "approve-mode": "password",

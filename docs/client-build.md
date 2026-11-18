@@ -44,7 +44,7 @@ All changes are in `patches/0001-rd-fork.patch` (applied to `client/`):
 
 Settings applied by `config.json`:
 
-- server `rd.sfohosting.dk`, API `https://rd.sfohosting.dk`, WebSocket only (`allow-websocket`)
+- server `rd.sfohosting.dk`, API `https://rd.sfohosting.dk`; standard RustDesk ports (WebSocket-only mode comes back with our extended hbbs)
 - `approve-mode=password`, `verification-method=use-permanent-password`, `allow-hide-cm`: no
   accept prompt and no connection window on the remote screen
 - `hide-tray`: no tray icon; `hide-server-settings`: users cannot repoint the client

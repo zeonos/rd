@@ -46,6 +46,18 @@ try {
     $tcp.Close()
 } catch { Report "TCP 443" $false $_.Exception.Message }
 
+# 3b. RustDesk ports (the open-source server registers devices over UDP 21116,
+#     which cannot be tested from here; TCP 21116 on the same host is a good hint)
+foreach ($port in 21115, 21116, 21117) {
+    try {
+        $tcp = New-Object System.Net.Sockets.TcpClient
+        $task = $tcp.ConnectAsync($Server, $port)
+        if ($task.Wait(5000) -and $tcp.Connected) { Report "TCP $port" $true "connected" }
+        else { Report "TCP $port" $false "blocked - allow outbound TCP 21115-21117 and UDP 21116 to $Server" }
+        $tcp.Close()
+    } catch { Report "TCP $port" $false $_.Exception.Message }
+}
+
 # 4. TLS certificate (detects TLS inspection)
 try {
     $tcp = New-Object System.Net.Sockets.TcpClient($Server, 443)

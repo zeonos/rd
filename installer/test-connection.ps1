@@ -14,10 +14,13 @@ function Report($name, $ok, $detail) {
     $results[$name] = $ok
     $mark = if ($ok -eq $true) { "PASS" } elseif ($ok -eq $false) { "FAIL" } else { "WARN" }
     $color = if ($ok -eq $true) { "Green" } elseif ($ok -eq $false) { "Red" } else { "Yellow" }
+    $detail = ("$detail" -replace '\s+', ' ').Trim()
     Write-Host ("[{0}] {1}: {2}" -f $mark, $name, $detail) -ForegroundColor $color
 }
 
 Write-Host "RD connection test for $Server on $env:COMPUTERNAME ($(Get-Date -Format s))`n"
+
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 # 1. DNS
 try {
@@ -43,11 +46,24 @@ try {
     $tcp.Close()
 } catch { Report "TCP 443" $false $_.Exception.Message }
 
+# 3b. RustDesk ports (the open-source server registers devices over UDP 21116,
+#     which cannot be tested from here; TCP 21116 on the same host is a good hint)
+foreach ($port in 21115, 21116, 21117) {
+    try {
+        $tcp = New-Object System.Net.Sockets.TcpClient
+        $task = $tcp.ConnectAsync($Server, $port)
+        if ($task.Wait(5000) -and $tcp.Connected) { Report "TCP $port" $true "connected" }
+        else { Report "TCP $port" $false "blocked - allow outbound TCP 21115-21117 and UDP 21116 to $Server" }
+        $tcp.Close()
+    } catch { Report "TCP $port" $false $_.Exception.Message }
+}
+
 # 4. TLS certificate (detects TLS inspection)
 try {
     $tcp = New-Object System.Net.Sockets.TcpClient($Server, 443)
     $ssl = New-Object System.Net.Security.SslStream($tcp.GetStream(), $false, { $true })
-    $ssl.AuthenticateAsClient($Server)
+    # Windows PowerShell 5.1 may default to TLS 1.0/1.1 here; the server only speaks TLS 1.2+.
+    $ssl.AuthenticateAsClient($Server, $null, [System.Security.Authentication.SslProtocols]::Tls12, $false)
     $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($ssl.RemoteCertificate)
     $issuer = $cert.Issuer
     $ssl.Close(); $tcp.Close()

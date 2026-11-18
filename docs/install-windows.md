@@ -15,7 +15,7 @@ Works on Windows Server 2022 and Windows 11. UAC disabled is fine.
 
 What `install.ps1` does:
 
-1. `rustdesk.exe --silent-install` — installs to `C:\Program Files\RD` as a service
+1. `RD.exe --silent-install` — installs to `C:\Program Files\RD` as a service
    that starts at boot, before anyone logs on.
 2. `--password <random>` — a random unattended password that is never written
    down. The client reports only `sha256(password + salt)` to the API server.
@@ -26,7 +26,7 @@ Log: `C:\ProgramData\RD\install.log`.
 
 ## Connecting
 
-On your own PC (installed the same way, or just run `rustdesk.exe`):
+On your own PC (installed the same way, or just run `rd\RD.exe` from the package):
 Account → Log in → username, password, then the authenticator code.
 The address book lists every device tagged with its location; double-click to
 connect. No password prompt: the viewer uses the hash from the address book.
@@ -43,4 +43,4 @@ To move a device without reinstalling: `rd-api device move <id> "New location"`.
 
 ## Uninstalling
 
-`"C:\Program Files\RD\rustdesk.exe" --uninstall`, then `rd-api device delete <id>`.
+`"C:\Program Files\RD\RD.exe" --uninstall`, then `rd-api device delete <id>`.

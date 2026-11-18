@@ -21,7 +21,7 @@ Alternatively add `"key": "<value>"` to `override-settings` in `client/rd/config
 The run's artifact `rd-windows-x64` contains:
 
 ```
-rd\                  the client (rustdesk.exe and its DLLs)
+rd\                  the client (RD.exe and its DLLs)
 install.ps1          silent install + enrolment
 test-connection.ps1  firewall check
 README.txt
@@ -35,20 +35,27 @@ All changes are in `patches/0001-rd-fork.patch` (applied to `client/`):
 | --- | --- |
 | `client/src/rd.rs` | new: built-in config, unattended-access hash in sysinfo |
 | `client/rd/config.json` | new: server, WebSocket only, no auto-update from rustdesk.com, silent mode |
+| `client/src/rd/agent.rs` | new: job runner for scripts and power actions from the console (Windows service only) |
+| `client/rd/job-key.pub` | new: the server's job signing public key (`rd-api job-key`); jobs not signed with it are never run |
+| `client/src/rendezvous_mediator.rs` | hook: start the job runner next to the heartbeat |
 | `client/src/common.rs` | hook: load the built-in config; `read_custom_client` split so it can be reused |
 | `client/src/hbbs_http/sync.rs` | hook: add the hash to the sysinfo upload |
 | `client/src/lib.rs` | `mod rd;` |
 
 Settings applied by `config.json`:
 
-- server `rd.sfohosting.dk`, API `https://rd.sfohosting.dk`, WebSocket only (`allow-websocket`)
+- server `rd.sfohosting.dk`, API `https://rd.sfohosting.dk`; standard RustDesk ports (WebSocket-only mode comes back with our extended hbbs)
 - `approve-mode=password`, `verification-method=use-permanent-password`, `allow-hide-cm`: no
   accept prompt and no connection window on the remote screen
 - `hide-tray`: no tray icon; `hide-server-settings`: users cannot repoint the client
 - `allow-auto-update=N`, `enable-check-update=N`: never replaced by upstream RustDesk builds
 - `app-name=RD`: install folder `C:\Program Files\RD`, service and window titles say RD
 
-Not yet rebranded: the executable is still `rustdesk.exe` and icons are RustDesk's.
+Job runner limits in this version: scripts run as SYSTEM only (choosing
+"Logged-on user" reports an error), output is capped at 256 KB, and jobs are
+picked up within about 10 seconds while the device is online.
+
+The executable is renamed to `RD.exe` when packaging (RustDesk's installer expects `<app-name>.exe`). Icons are still RustDesk's.
 A full rebrand (exe name, icons, Windows resources) is a later task.
 
 ## Updating to a new RustDesk release

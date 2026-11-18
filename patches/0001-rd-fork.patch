@@ -1,0 +1,155 @@
+diff --git a/client/rd/config.json b/client/rd/config.json
+new file mode 100644
+index 0000000..ab3b600
+--- /dev/null
++++ b/client/rd/config.json
+@@ -0,0 +1,22 @@
++{
++  "app-name": "RD",
++  "override-settings": {
++    "custom-rendezvous-server": "rd.sfohosting.dk",
++    "relay-server": "rd.sfohosting.dk",
++    "api-server": "https://rd.sfohosting.dk",
++    "allow-websocket": "Y",
++    "allow-auto-update": "N",
++    "approve-mode": "password",
++    "verification-method": "use-permanent-password",
++    "allow-hide-cm": "Y",
++    "enable-lan-discovery": "N",
++    "direct-server": "N",
++    "hide-tray": "Y",
++    "hide-server-settings": "Y",
++    "hide-websocket-settings": "Y",
++    "hide-proxy-settings": "N"
++  },
++  "default-settings": {
++    "enable-check-update": "N"
++  }
++}
+diff --git a/client/src/common.rs b/client/src/common.rs
+index 4bc5bc2..e465f87 100644
+--- a/client/src/common.rs
++++ b/client/src/common.rs
+@@ -2507,6 +2507,7 @@ pub fn rustdesk_interval(i: Interval) -> ThrottledInterval {
+ }
+ 
+ pub fn load_custom_client() {
++    crate::rd::apply_builtin_config(); // RD: built-in server, key and defaults
+     #[cfg(debug_assertions)]
+     if let Ok(data) = std::fs::read_to_string("./custom.txt") {
+         read_custom_client(data.trim());
+@@ -2624,7 +2625,13 @@ pub fn read_custom_client(config: &str) {
+         log::error!("Failed to parse custom client config");
+         return;
+     };
++    apply_custom_client_map(data); // RD: split so the built-in config can reuse it
++}
+ 
++// RD: the body of upstream `read_custom_client` after signature verification.
++pub(crate) fn apply_custom_client_map(
++    mut data: std::collections::HashMap<String, serde_json::Value>,
++) {
+     if let Some(app_name) = data.remove("app-name") {
+         if let Some(app_name) = app_name.as_str() {
+             *config::APP_NAME.write().unwrap() = app_name.to_owned();
+diff --git a/client/src/hbbs_http/sync.rs b/client/src/hbbs_http/sync.rs
+index c934a79..44e078d 100644
+--- a/client/src/hbbs_http/sync.rs
++++ b/client/src/hbbs_http/sync.rs
+@@ -133,6 +133,7 @@ async fn start_hbbs_sync_async() {
+                     v["version"] = json!(crate::VERSION);
+                     v["id"] = json!(id);
+                     v["uuid"] = json!(crate::encode64(hbb_common::get_uuid()));
++                    crate::rd::extend_sysinfo(&mut v); // RD: report unattended-access hash
+                     let ab_name = Config::get_option(keys::OPTION_PRESET_ADDRESS_BOOK_NAME);
+                     if !ab_name.is_empty() {
+                         v[keys::OPTION_PRESET_ADDRESS_BOOK_NAME] = json!(ab_name);
+diff --git a/client/src/lib.rs b/client/src/lib.rs
+index f6e48a1..2a72a6d 100644
+--- a/client/src/lib.rs
++++ b/client/src/lib.rs
+@@ -21,6 +21,7 @@ mod rendezvous_mediator;
+ pub use self::rendezvous_mediator::*;
+ /// cbindgen:ignore
+ pub mod common;
++mod rd; // RD: fork additions
+ #[cfg(not(any(target_os = "ios")))]
+ pub mod ipc;
+ #[cfg(not(any(
+diff --git a/client/src/rd.rs b/client/src/rd.rs
+new file mode 100644
+index 0000000..8c2e381
+--- /dev/null
++++ b/client/src/rd.rs
+@@ -0,0 +1,71 @@
++//! RD fork additions to the RustDesk client.
++//!
++//! Upstream files only get one-line hooks marked `// RD:` that call into this
++//! module, so updating to a new RustDesk release stays a small merge.
++//!
++//! 1. `apply_builtin_config` bakes our server, its public key and our defaults
++//!    into the binary (upstream needs a config file signed by RustDesk Ltd).
++//! 2. `extend_sysinfo` reports a hash of the unattended-access password to our
++//!    API server, which hands it only to logged-in admins (with TOTP) via the
++//!    address book, so viewers connect without anyone knowing the password.
++
++use hbb_common::{
++    config::{self, Config},
++    log,
++};
++use std::collections::HashMap;
++
++/// `client/rd/config.json`, same format as RustDesk's custom client config:
++/// `app-name`, `default-settings`, `override-settings`, plus hard settings.
++const BUILTIN_CONFIG: &str = include_str!("../rd/config.json");
++
++/// Build-time overrides, set by CI from repository variables/secrets.
++const ENV_SERVER: Option<&str> = option_env!("RD_SERVER");
++const ENV_SERVER_KEY: Option<&str> = option_env!("RD_SERVER_KEY");
++
++pub fn apply_builtin_config() {
++    let mut data: HashMap<String, serde_json::Value> = match serde_json::from_str(BUILTIN_CONFIG) {
++        Ok(d) => d,
++        Err(e) => {
++            log::error!("RD: built-in config is invalid: {}", e);
++            return;
++        }
++    };
++    if let Some(serde_json::Value::Object(overrides)) = data.get_mut("override-settings") {
++        if let Some(server) = ENV_SERVER.filter(|s| !s.is_empty()) {
++            overrides.insert("custom-rendezvous-server".into(), server.into());
++            overrides.insert("relay-server".into(), server.into());
++            overrides.insert("api-server".into(), format!("https://{}", server).into());
++        }
++        if let Some(key) = ENV_SERVER_KEY.filter(|s| !s.is_empty()) {
++            overrides.insert("key".into(), key.into());
++        }
++    }
++    crate::common::apply_custom_client_map(data);
++}
++
++/// Adds `rd_pw_h1` (base64 of sha256(permanent password + salt)) to the
++/// sysinfo upload. Only the hash leaves the machine, never the password.
++pub fn extend_sysinfo(v: &mut serde_json::Value) {
++    if let Some(h1) = unattended_h1() {
++        v["rd_pw_h1"] = serde_json::json!(crate::encode64(h1));
++    }
++}
++
++fn unattended_h1() -> Option<Vec<u8>> {
++    let (storage, salt) = Config::get_local_permanent_password_storage_and_salt();
++    if storage.is_empty() || salt.is_empty() {
++        return None;
++    }
++    config::decode_permanent_password_h1_from_storage(&storage).map(|h1| h1.to_vec())
++}
++
++#[cfg(test)]
++mod tests {
++    #[test]
++    fn builtin_config_parses() {
++        let v: serde_json::Value = serde_json::from_str(super::BUILTIN_CONFIG).unwrap();
++        assert!(v["override-settings"]["custom-rendezvous-server"].is_string());
++        assert_eq!(v["override-settings"]["allow-websocket"], "Y");
++    }
++}

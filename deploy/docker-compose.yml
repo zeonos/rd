@@ -75,6 +75,7 @@ services:
       RD_ADMIN_USER: ${ADMIN_USER:-admin}
       RD_ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       RD_ALERT_NTFY_URL: ${ALERT_NTFY_URL:-}
+      RD_ALERT_OFFLINE_MINUTES: ${ALERT_OFFLINE_MINUTES:-10}
       RD_TRUSTED_PROXY: "1"
     depends_on:
       postgres:

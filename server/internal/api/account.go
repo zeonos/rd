@@ -163,8 +163,12 @@ func (s *Server) finishLogin(w http.ResponseWriter, r *http.Request, u *store.Us
 	if clientID == "" {
 		kind = "web"
 	}
+	max := s.cfg.SessionMax
+	if kind == "web" && max > 12*time.Hour {
+		max = 12 * time.Hour // browser sessions are short-lived
+	}
 	sess := &store.Session{TokenHash: hash, UserID: u.ID, Kind: kind, ClientID: clientID,
-		CreatedAt: now, LastSeen: now, ExpiresAt: now.Add(s.cfg.SessionMax)}
+		CreatedAt: now, LastSeen: now, ExpiresAt: now.Add(max)}
 	if err := s.store.CreateSession(r.Context(), sess); err != nil {
 		s.internalError(w, err)
 		return

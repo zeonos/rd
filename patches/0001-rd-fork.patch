@@ -79,10 +79,10 @@ index f6e48a1..2a72a6d 100644
  #[cfg(not(any(
 diff --git a/client/src/rd.rs b/client/src/rd.rs
 new file mode 100644
-index 0000000..8c2e381
+index 0000000..518dec3
 --- /dev/null
 +++ b/client/src/rd.rs
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,78 @@
 +//! RD fork additions to the RustDesk client.
 +//!
 +//! Upstream files only get one-line hooks marked `// RD:` that call into this
@@ -131,9 +131,16 @@ index 0000000..8c2e381
 +
 +/// Adds `rd_pw_h1` (base64 of sha256(permanent password + salt)) to the
 +/// sysinfo upload. Only the hash leaves the machine, never the password.
++///
++/// Also adds `rd_pk`, the device's public Ed25519 key, which the server records
++/// once after enrolment to verify signed agent requests (job polling).
 +pub fn extend_sysinfo(v: &mut serde_json::Value) {
 +    if let Some(h1) = unattended_h1() {
 +        v["rd_pw_h1"] = serde_json::json!(crate::encode64(h1));
++    }
++    let (_, pk) = Config::get_key_pair();
++    if pk.len() == 32 {
++        v["rd_pk"] = serde_json::json!(crate::encode64(pk));
 +    }
 +}
 +

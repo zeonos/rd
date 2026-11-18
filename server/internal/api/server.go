@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/zeonos/rd/server/internal/auth"
+	"github.com/zeonos/rd/server/internal/console"
 	"github.com/zeonos/rd/server/internal/store"
 )
 
@@ -130,10 +131,8 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/admin/jobs/{id}", s.requireAdmin(s.adminGetJob))
 	m.HandleFunc("POST /api/admin/jobs/{id}/cancel", s.requireAdmin(s.adminCancelJob))
 
-	m.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.Write([]byte("RD API server. The web console arrives in phase 2.\n"))
-	})
+	m.Handle("GET /{$}", console.Index())
+	m.Handle("GET /static/", console.Static())
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

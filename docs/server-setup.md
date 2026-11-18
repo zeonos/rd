@@ -84,7 +84,25 @@ Useful commands (all `docker compose exec api rd-api ...`):
 | `group list` / `group add "Home lab"` | locations |
 | `set-password admin` | change your password (signs out all sessions) |
 
-## 7. Updating
+## 7. Web console
+
+Open `https://rd.sfohosting.dk` and log in with the admin account and your
+authenticator code. Browser sessions last at most 12 hours.
+
+- **Devices:** live status by location, details, rename, move, remove; select
+  devices to run a script or restart them.
+- **Jobs:** results per device with output; cancel devices that have not
+  picked a job up yet.
+- **Scripts:** saved PowerShell / cmd scripts.
+- **Settings:** account-wide device settings with per-location overrides;
+  devices apply changes within about a minute.
+- **Enrolment:** create install tokens and manage locations.
+
+Scripts and power actions need the agent job runner in the client (phase 2,
+next client release); until then jobs wait for devices and expire after
+their deadline.
+
+## 8. Updating
 
 ```bash
 cd /opt/rd && git pull && cd deploy

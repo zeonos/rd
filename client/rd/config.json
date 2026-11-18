@@ -1,0 +1,22 @@
+{
+  "app-name": "RD",
+  "override-settings": {
+    "custom-rendezvous-server": "rd.sfohosting.dk",
+    "relay-server": "rd.sfohosting.dk",
+    "api-server": "https://rd.sfohosting.dk",
+    "allow-websocket": "Y",
+    "allow-auto-update": "N",
+    "approve-mode": "password",
+    "verification-method": "use-permanent-password",
+    "allow-hide-cm": "Y",
+    "enable-lan-discovery": "N",
+    "direct-server": "N",
+    "hide-tray": "Y",
+    "hide-server-settings": "Y",
+    "hide-websocket-settings": "Y",
+    "hide-proxy-settings": "N"
+  },
+  "default-settings": {
+    "enable-check-update": "N"
+  }
+}

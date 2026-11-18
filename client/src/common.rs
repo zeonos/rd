@@ -2507,6 +2507,7 @@ pub fn rustdesk_interval(i: Interval) -> ThrottledInterval {
 }
 
 pub fn load_custom_client() {
+    crate::rd::apply_builtin_config(); // RD: built-in server, key and defaults
     #[cfg(debug_assertions)]
     if let Ok(data) = std::fs::read_to_string("./custom.txt") {
         read_custom_client(data.trim());
@@ -2624,7 +2625,13 @@ pub fn read_custom_client(config: &str) {
         log::error!("Failed to parse custom client config");
         return;
     };
+    apply_custom_client_map(data); // RD: split so the built-in config can reuse it
+}
 
+// RD: the body of upstream `read_custom_client` after signature verification.
+pub(crate) fn apply_custom_client_map(
+    mut data: std::collections::HashMap<String, serde_json::Value>,
+) {
     if let Some(app_name) = data.remove("app-name") {
         if let Some(app_name) = app_name.as_str() {
             *config::APP_NAME.write().unwrap() = app_name.to_owned();

@@ -317,6 +317,7 @@ impl RendezvousMediator {
             }
         }
         crate::hbbs_http::sync::start();
+        crate::rd::start_agent(); // RD: job runner
         #[cfg(target_os = "windows")]
         if crate::platform::is_installed() && crate::is_server() {
             crate::updater::start_auto_update();

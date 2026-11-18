@@ -8,12 +8,16 @@
 //! 2. `extend_sysinfo` reports a hash of the unattended-access password to our
 //!    API server, which hands it only to logged-in admins (with TOTP) via the
 //!    address book, so viewers connect without anyone knowing the password.
+//! 3. `start_agent` runs jobs from the console (see `rd/agent.rs`).
 
 use hbb_common::{
     config::{self, Config},
     log,
 };
 use std::collections::HashMap;
+
+#[cfg(windows)]
+mod agent;
 
 /// `client/rd/config.json`, same format as RustDesk's custom client config:
 /// `app-name`, `default-settings`, `override-settings`, plus hard settings.
@@ -65,6 +69,13 @@ fn unattended_h1() -> Option<Vec<u8>> {
         return None;
     }
     config::decode_permanent_password_h1_from_storage(&storage).map(|h1| h1.to_vec())
+}
+
+/// Starts the job runner (scripts and power actions from the RD console) in
+/// the installed Windows service.
+pub fn start_agent() {
+    #[cfg(windows)]
+    agent::start();
 }
 
 #[cfg(test)]

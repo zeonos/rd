@@ -62,10 +62,13 @@ type Device struct {
 	// the patched client. The address book hands it to logged-in viewers so they
 	// can connect unattended without anyone knowing the device password.
 	PasswordH1 string
-	Conns      int
-	LastSeen   *time.Time
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	// PublicKey is the device's Ed25519 key (base64), recorded on its first
+	// sysinfo after enrolment; agent requests must be signed with it.
+	PublicKey string
+	Conns     int
+	LastSeen  *time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // Online reports whether the device sent a heartbeat recently.
@@ -104,6 +107,7 @@ type SysinfoUpdate struct {
 }
 
 type Store interface {
+	JobStore
 	Close()
 
 	// Users
@@ -145,6 +149,10 @@ type Store interface {
 	UpdateDevice(ctx context.Context, id string, alias, note *string, groupID **int64) error
 	DeleteDevice(ctx context.Context, id string) error
 
+	// Policies: scope 0 = account, otherwise a group id. An empty map removes the scope's policy.
+	ListPolicies(ctx context.Context) (map[int64]map[string]string, error)
+	SetPolicy(ctx context.Context, scope int64, values map[string]string) error
+
 	// Enrolment tokens
 	CreateEnrollToken(ctx context.Context, t *EnrollToken) error
 	ListEnrollTokens(ctx context.Context) ([]EnrollToken, error)
@@ -152,6 +160,9 @@ type Store interface {
 	UseEnrollToken(ctx context.Context, tokenHash string, now time.Time) (*EnrollToken, error)
 	DeleteEnrollToken(ctx context.Context, id int64) error
 }
+
+// AccountScope is the policy scope of the whole account.
+const AccountScope int64 = 0
 
 // SplitPath normalises "A / B//C" to ["A","B","C"].
 func SplitPath(path string) []string {

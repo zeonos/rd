@@ -16,6 +16,8 @@ type Memory struct {
 	groups    map[int64]*Group
 	devices   map[string]*Device
 	tokens    map[int64]*EnrollToken
+	policies  map[int64]map[string]string
+	jobState  *memJobs
 	nextID    int64
 	nowSource func() time.Time
 }
@@ -27,6 +29,7 @@ func NewMemory() *Memory {
 		groups:    map[int64]*Group{},
 		devices:   map[string]*Device{},
 		tokens:    map[int64]*EnrollToken{},
+		policies:  map[int64]map[string]string{},
 		nowSource: time.Now,
 	}
 }
@@ -313,6 +316,43 @@ func (m *Memory) DeleteGroup(ctx context.Context, id int64) error {
 		}
 	}
 	delete(m.groups, id)
+	delete(m.policies, id)
+	return nil
+}
+
+// --- policies ---
+
+func (m *Memory) ListPolicies(ctx context.Context) (map[int64]map[string]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make(map[int64]map[string]string, len(m.policies))
+	for k, v := range m.policies {
+		c := make(map[string]string, len(v))
+		for kk, vv := range v {
+			c[kk] = vv
+		}
+		out[k] = c
+	}
+	return out, nil
+}
+
+func (m *Memory) SetPolicy(ctx context.Context, scope int64, values map[string]string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if scope != AccountScope {
+		if _, ok := m.groups[scope]; !ok {
+			return ErrNotFound
+		}
+	}
+	if len(values) == 0 {
+		delete(m.policies, scope)
+		return nil
+	}
+	c := make(map[string]string, len(values))
+	for k, v := range values {
+		c[k] = v
+	}
+	m.policies[scope] = c
 	return nil
 }
 
@@ -356,7 +396,8 @@ func (m *Memory) EnrollDevice(ctx context.Context, d *Device) error {
 	now := m.nowSource()
 	if old, ok := m.devices[d.ID]; ok {
 		if old.UUID != d.UUID {
-			old.PasswordH1 = "" // new installation: old credential is meaningless
+			// new installation: old credentials are meaningless
+			old.PasswordH1, old.PublicKey = "", ""
 		}
 		old.UUID = d.UUID
 		old.GroupID = d.GroupID

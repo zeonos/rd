@@ -46,9 +46,16 @@ pub fn apply_builtin_config() {
 
 /// Adds `rd_pw_h1` (base64 of sha256(permanent password + salt)) to the
 /// sysinfo upload. Only the hash leaves the machine, never the password.
+///
+/// Also adds `rd_pk`, the device's public Ed25519 key, which the server records
+/// once after enrolment to verify signed agent requests (job polling).
 pub fn extend_sysinfo(v: &mut serde_json::Value) {
     if let Some(h1) = unattended_h1() {
         v["rd_pw_h1"] = serde_json::json!(crate::encode64(h1));
+    }
+    let (_, pk) = Config::get_key_pair();
+    if pk.len() == 32 {
+        v["rd_pk"] = serde_json::json!(crate::encode64(pk));
     }
 }
 

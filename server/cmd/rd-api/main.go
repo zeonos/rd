@@ -7,6 +7,7 @@
 //	rd-api token create [--group "Office/Rack 1"] [--max-uses N] [--expires-hours H] [--note text]
 //	rd-api token list | token delete <id>
 //	rd-api group list | group add "<path>" | group delete <id>
+//	rd-api job-key
 //	rd-api device list | device move <id> "<group path>" | device rename <id> <alias> | device delete <id>
 //
 // Configuration comes from environment variables (see deploy/docker-compose.yml).
@@ -16,6 +17,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
@@ -75,6 +78,8 @@ func main() {
 		err = groupCmd(ctx, st, args)
 	case "device":
 		err = deviceCmd(ctx, st, args)
+	case "job-key":
+		err = jobKeyCmd(ctx, st)
 	default:
 		err = fmt.Errorf("unknown command %q\n\n%s", cmd, usage)
 	}
@@ -91,7 +96,8 @@ const usage = `rd-api commands:
   token create [--group PATH] [--max-uses N] [--expires-hours H] [--note TEXT]
   token list | token delete <id>
   group list | group add PATH | group delete <id>
-  device list | device move <id> PATH | device rename <id> ALIAS | device delete <id>`
+  device list | device move <id> PATH | device rename <id> ALIAS | device delete <id>
+  job-key                                print the public job signing key (goes into the client build)`
 
 func fatal(err error) {
 	fmt.Fprintln(os.Stderr, "error:", err)
@@ -460,4 +466,13 @@ func deviceCmd(ctx context.Context, st store.Store, args []string) error {
 		return st.DeleteDevice(ctx, args[1])
 	}
 	return fmt.Errorf("unknown device command %q", args[0])
+}
+
+func jobKeyCmd(ctx context.Context, st store.Store) error {
+	k, err := api.JobKey(ctx, st)
+	if err != nil {
+		return err
+	}
+	fmt.Println(base64.StdEncoding.EncodeToString(k.Public().(ed25519.PublicKey)))
+	return nil
 }

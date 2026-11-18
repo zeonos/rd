@@ -350,18 +350,62 @@ func (p *Postgres) DeleteGroup(ctx context.Context, id int64) error {
 	if isFKViolation(err) {
 		return ErrConflict
 	}
+	if err != nil {
+		return err
+	}
+	_, err = p.pool.Exec(ctx, `DELETE FROM policies WHERE scope_id=$1`, id)
+	return err
+}
+
+// --- policies ---
+
+func (p *Postgres) ListPolicies(ctx context.Context) (map[int64]map[string]string, error) {
+	rows, err := p.pool.Query(ctx, `SELECT scope_id, "values" FROM policies`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]map[string]string{}
+	for rows.Next() {
+		var id int64
+		var v map[string]string
+		if err := rows.Scan(&id, &v); err != nil {
+			return nil, err
+		}
+		out[id] = v
+	}
+	return out, rows.Err()
+}
+
+func (p *Postgres) SetPolicy(ctx context.Context, scope int64, values map[string]string) error {
+	if scope != AccountScope {
+		var exists bool
+		if err := p.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM device_groups WHERE id=$1)`, scope).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return ErrNotFound
+		}
+	}
+	if len(values) == 0 {
+		_, err := p.pool.Exec(ctx, `DELETE FROM policies WHERE scope_id=$1`, scope)
+		return err
+	}
+	_, err := p.pool.Exec(ctx,
+		`INSERT INTO policies(scope_id, "values", updated_at) VALUES($1,$2,now())
+		 ON CONFLICT (scope_id) DO UPDATE SET "values"=EXCLUDED."values", updated_at=now()`, scope, values)
 	return err
 }
 
 // --- devices ---
 
 const deviceCols = `id, uuid, group_id, hostname, username, os, cpu, memory, version, alias, note,
-	password_h1, conns, last_seen, created_at, updated_at`
+	password_h1, public_key, conns, last_seen, created_at, updated_at`
 
 func scanDevice(row pgx.Row) (*Device, error) {
 	var d Device
 	err := row.Scan(&d.ID, &d.UUID, &d.GroupID, &d.Hostname, &d.Username, &d.OS, &d.CPU, &d.Memory,
-		&d.Version, &d.Alias, &d.Note, &d.PasswordH1, &d.Conns, &d.LastSeen, &d.CreatedAt, &d.UpdatedAt)
+		&d.Version, &d.Alias, &d.Note, &d.PasswordH1, &d.PublicKey, &d.Conns, &d.LastSeen, &d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
 		return nil, notFound(err)
 	}
@@ -412,6 +456,7 @@ func (p *Postgres) EnrollDevice(ctx context.Context, d *Device) error {
 		`INSERT INTO devices(id, uuid, group_id, alias, note) VALUES($1,$2,$3,$4,$5)
 		 ON CONFLICT (id) DO UPDATE SET
 		   password_h1 = CASE WHEN devices.uuid = EXCLUDED.uuid THEN devices.password_h1 ELSE '' END,
+		   public_key = CASE WHEN devices.uuid = EXCLUDED.uuid THEN devices.public_key ELSE '' END,
 		   uuid = EXCLUDED.uuid,
 		   group_id = EXCLUDED.group_id,
 		   alias = CASE WHEN EXCLUDED.alias <> '' THEN EXCLUDED.alias ELSE devices.alias END,

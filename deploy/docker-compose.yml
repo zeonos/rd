@@ -1,5 +1,6 @@
-# RD server stack: Caddy (only public listener, TCP 443) in front of
-# RustDesk hbbs/hbbr (WebSocket only) and our API server + PostgreSQL.
+# RD server stack: Caddy (TCP 80/443) in front of our API server + PostgreSQL,
+# and RustDesk hbbs/hbbr on their standard ports (TCP 21115-21117, UDP 21116)
+# plus WebSocket on 443 (/ws/id, /ws/relay).
 #
 #   cp .env.example .env   # then edit
 #   docker compose up -d
@@ -36,6 +37,12 @@ services:
     #     WebSocket clients use wss://$DOMAIN/ws/relay.
     # -k _: only accept clients that carry this server's public key.
     command: hbbs -r ${DOMAIN}:21117 -k _
+    # The open-source hbbs only accepts device registration over UDP 21116
+    # (WebSocket registration is a Server Pro feature), so these are published.
+    ports:
+      - "21115:21115/tcp"
+      - "21116:21116/tcp"
+      - "21116:21116/udp"
     volumes:
       - ./data/rustdesk:/root
     depends_on:
@@ -45,6 +52,8 @@ services:
     image: rustdesk/rustdesk-server:${RUSTDESK_SERVER_TAG:-latest}
     restart: unless-stopped
     command: hbbr -k _
+    ports:
+      - "21117:21117/tcp"
     volumes:
       - ./data/rustdesk:/root
 

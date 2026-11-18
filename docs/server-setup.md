@@ -23,9 +23,13 @@ Inbound rules (everything else denied):
 | TCP | 22 | your office/home IPs only |
 | TCP | 80 | any (Let's Encrypt + redirect) |
 | TCP | 443 | any |
+| TCP | 21115-21117 | any (RustDesk ID/relay) |
+| UDP | 21116 | any (RustDesk registration) |
 
-No UDP and none of the RustDesk ports 21115–21119 are needed: clients use
-WebSocket over 443 only.
+The open-source RustDesk server only accepts device registration over
+UDP 21116, so for now every site needs outbound **TCP 21115-21117 and
+UDP 21116** to `rd.sfohosting.dk` in addition to 443. WebSocket-only
+operation (443 only) needs our extended hbbs, which is in progress.
 
 ## 3. Install
 

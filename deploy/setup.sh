@@ -36,12 +36,14 @@ if ! swapon --show | grep -q /swapfile; then
   echo 'vm.swappiness=10' > /etc/sysctl.d/99-rd-swap.conf
 fi
 
-echo "==> Host firewall (also set a Hetzner Cloud Firewall: 22 from your IP, 80, 443)"
+echo "==> Host firewall (also set a Hetzner Cloud Firewall: 22 from your IP, 80, 443, TCP 21115-21117, UDP 21116)"
 ufw default deny incoming
 ufw default allow outgoing
 ufw allow 22/tcp
 ufw allow 80/tcp
 ufw allow 443/tcp
+ufw allow 21115:21117/tcp
+ufw allow 21116/udp
 ufw --force enable
 
 echo "==> .env"

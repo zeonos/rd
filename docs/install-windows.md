@@ -43,4 +43,4 @@ To move a device without reinstalling: `rd-api device move <id> "New location"`.
 
 ## Uninstalling
 
-`"C:\Program Files\RD\rustdesk.exe" --uninstall`, then `rd-api device delete <id>`.
+`"C:\Program Files\RD\RD.exe" --uninstall`, then `rd-api device delete <id>`.

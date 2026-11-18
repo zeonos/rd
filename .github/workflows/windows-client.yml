@@ -165,6 +165,9 @@ jobs:
           python3 .\build.py --portable --flutter --skip-portable-pack --hwcodec --vram
           New-Item -ItemType Directory -Force ../dist | Out-Null
           mv ./flutter/build/windows/x64/runner/Release ../dist/rd
+          # RustDesk's installer copies the exe under its own name, but the service and
+          # shortcuts point at <app-name>.exe: ship it as RD.exe (app-name in rd/config.json).
+          Rename-Item ../dist/rd/rustdesk.exe RD.exe
 
       - name: Package
         working-directory: .

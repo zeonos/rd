@@ -21,7 +21,7 @@ Alternatively add `"key": "<value>"` to `override-settings` in `client/rd/config
 The run's artifact `rd-windows-x64` contains:
 
 ```
-rd\                  the client (rustdesk.exe and its DLLs)
+rd\                  the client (RD.exe and its DLLs)
 install.ps1          silent install + enrolment
 test-connection.ps1  firewall check
 README.txt
@@ -55,7 +55,7 @@ Job runner limits in this version: scripts run as SYSTEM only (choosing
 "Logged-on user" reports an error), output is capped at 256 KB, and jobs are
 picked up within about 10 seconds while the device is online.
 
-Not yet rebranded: the executable is still `rustdesk.exe` and icons are RustDesk's.
+The executable is renamed to `RD.exe` when packaging (RustDesk's installer expects `<app-name>.exe`). Icons are still RustDesk's.
 A full rebrand (exe name, icons, Windows resources) is a later task.
 
 ## Updating to a new RustDesk release

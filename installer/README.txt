@@ -1,7 +1,7 @@
 RD client for Windows (Server 2022 / Windows 11)
 
 Files
-  rd\                   the client (forked RustDesk)
+  rd\                   the client (RD.exe, forked RustDesk)
   install.ps1           silent unattended install + enrolment
   test-connection.ps1   checks this machine can reach the RD server
 

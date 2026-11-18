@@ -67,6 +67,8 @@ type sysinfoRequest struct {
 	Version  string `json:"version"`
 	// Added by the RD client patch: base64 h1 of the unattended password.
 	PasswordH1 string `json:"rd_pw_h1"`
+	// Added by the RD client patch: the device's Ed25519 public key (base64).
+	PublicKey string `json:"rd_pk"`
 }
 
 // handleSysinfo answers in plain text like RustDesk Server Pro:
@@ -102,6 +104,7 @@ func (s *Server) handleSysinfo(w http.ResponseWriter, r *http.Request) {
 		writeText(w, http.StatusOK, "ERROR")
 		return
 	}
+	s.recordDeviceKey(r.Context(), d, req.PublicKey, s.clientIP(r))
 	writeText(w, http.StatusOK, "SYSINFO_UPDATED")
 }
 

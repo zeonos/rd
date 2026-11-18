@@ -400,12 +400,12 @@ func (p *Postgres) SetPolicy(ctx context.Context, scope int64, values map[string
 // --- devices ---
 
 const deviceCols = `id, uuid, group_id, hostname, username, os, cpu, memory, version, alias, note,
-	password_h1, conns, last_seen, created_at, updated_at`
+	password_h1, public_key, conns, last_seen, created_at, updated_at`
 
 func scanDevice(row pgx.Row) (*Device, error) {
 	var d Device
 	err := row.Scan(&d.ID, &d.UUID, &d.GroupID, &d.Hostname, &d.Username, &d.OS, &d.CPU, &d.Memory,
-		&d.Version, &d.Alias, &d.Note, &d.PasswordH1, &d.Conns, &d.LastSeen, &d.CreatedAt, &d.UpdatedAt)
+		&d.Version, &d.Alias, &d.Note, &d.PasswordH1, &d.PublicKey, &d.Conns, &d.LastSeen, &d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
 		return nil, notFound(err)
 	}
@@ -456,6 +456,7 @@ func (p *Postgres) EnrollDevice(ctx context.Context, d *Device) error {
 		`INSERT INTO devices(id, uuid, group_id, alias, note) VALUES($1,$2,$3,$4,$5)
 		 ON CONFLICT (id) DO UPDATE SET
 		   password_h1 = CASE WHEN devices.uuid = EXCLUDED.uuid THEN devices.password_h1 ELSE '' END,
+		   public_key = CASE WHEN devices.uuid = EXCLUDED.uuid THEN devices.public_key ELSE '' END,
 		   uuid = EXCLUDED.uuid,
 		   group_id = EXCLUDED.group_id,
 		   alias = CASE WHEN EXCLUDED.alias <> '' THEN EXCLUDED.alias ELSE devices.alias END,

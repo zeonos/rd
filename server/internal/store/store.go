@@ -62,10 +62,13 @@ type Device struct {
 	// the patched client. The address book hands it to logged-in viewers so they
 	// can connect unattended without anyone knowing the device password.
 	PasswordH1 string
-	Conns      int
-	LastSeen   *time.Time
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	// PublicKey is the device's Ed25519 key (base64), recorded on its first
+	// sysinfo after enrolment; agent requests must be signed with it.
+	PublicKey string
+	Conns     int
+	LastSeen  *time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // Online reports whether the device sent a heartbeat recently.
@@ -104,6 +107,7 @@ type SysinfoUpdate struct {
 }
 
 type Store interface {
+	JobStore
 	Close()
 
 	// Users

@@ -4,6 +4,7 @@ package api
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -39,6 +40,7 @@ type Server struct {
 
 	mu         sync.Mutex
 	pendingTFA map[string]pendingTFA // secret -> pending second factor
+	signKey    ed25519.PrivateKey    // job signing key, loaded on first use
 
 	mux *http.ServeMux
 }
@@ -92,6 +94,11 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/sysinfo_ver", func(w http.ResponseWriter, r *http.Request) { w.Write(nil) })
 	m.HandleFunc("POST /api/devices/cli", s.handleEnroll)
 
+	// Agent job channel (signed both ways, see jobs.go)
+	m.HandleFunc("POST /api/agent/poll", s.handleAgentPoll)
+	m.HandleFunc("POST /api/agent/result", s.handleAgentResult)
+	m.HandleFunc("GET /api/agent/key", s.handleAgentKey)
+
 	// Address book (legacy mode) and the "accessible devices" group tab
 	m.HandleFunc("GET /api/ab", s.requireUser(s.handleGetAB))
 	m.HandleFunc("POST /api/ab", s.requireUser(s.handlePostAB))
@@ -114,6 +121,14 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/admin/policies", s.requireAdmin(s.adminListPolicies))
 	m.HandleFunc("PUT /api/admin/policies/{scope}", s.requireAdmin(s.adminSetPolicy))
 	m.HandleFunc("GET /api/admin/devices/{id}/policy", s.requireAdmin(s.adminDevicePolicy))
+	m.HandleFunc("GET /api/admin/scripts", s.requireAdmin(s.adminListScripts))
+	m.HandleFunc("POST /api/admin/scripts", s.requireAdmin(s.adminSaveScript))
+	m.HandleFunc("PUT /api/admin/scripts/{id}", s.requireAdmin(s.adminSaveScript))
+	m.HandleFunc("DELETE /api/admin/scripts/{id}", s.requireAdmin(s.adminDeleteScript))
+	m.HandleFunc("GET /api/admin/jobs", s.requireAdmin(s.adminListJobs))
+	m.HandleFunc("POST /api/admin/jobs", s.requireAdmin(s.adminCreateJob))
+	m.HandleFunc("GET /api/admin/jobs/{id}", s.requireAdmin(s.adminGetJob))
+	m.HandleFunc("POST /api/admin/jobs/{id}/cancel", s.requireAdmin(s.adminCancelJob))
 
 	m.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -135,14 +150,20 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // Maintain runs periodic cleanup until ctx is done.
 func (s *Server) Maintain(ctx context.Context) {
-	t := time.NewTicker(10 * time.Minute)
+	t := time.NewTicker(time.Minute)
 	defer t.Stop()
-	for {
+	for tick := 0; ; tick++ {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
 			now := s.now()
+			if err := s.store.ExpireRuns(ctx, now); err != nil {
+				s.cfg.Logger.Error("expire job runs", "err", err)
+			}
+			if tick%10 != 0 {
+				continue
+			}
 			s.ipLimit.Sweep(now)
 			s.usLimit.Sweep(now)
 			s.mu.Lock()

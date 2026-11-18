@@ -17,6 +17,7 @@ type Memory struct {
 	devices   map[string]*Device
 	tokens    map[int64]*EnrollToken
 	policies  map[int64]map[string]string
+	jobState  *memJobs
 	nextID    int64
 	nowSource func() time.Time
 }
@@ -395,7 +396,8 @@ func (m *Memory) EnrollDevice(ctx context.Context, d *Device) error {
 	now := m.nowSource()
 	if old, ok := m.devices[d.ID]; ok {
 		if old.UUID != d.UUID {
-			old.PasswordH1 = "" // new installation: old credential is meaningless
+			// new installation: old credentials are meaningless
+			old.PasswordH1, old.PublicKey = "", ""
 		}
 		old.UUID = d.UUID
 		old.GroupID = d.GroupID

@@ -1,7 +1,9 @@
 # Firewall test (phase 0.5)
 
-Each site needs one outbound rule: **TCP 443 to rd.sfohosting.dk**
-(`2.29.149.12`, `2a01:4f9:c01d:1415::1`). Nothing inbound, no UDP.
+Each site needs outbound access to `rd.sfohosting.dk`
+(`2.29.149.12`, `2a01:4f9:c01d:1415::1`): **TCP 443, TCP 21115-21117 and
+UDP 21116**. Nothing inbound. (443 only becomes possible once our extended
+hbbs with WebSocket registration is deployed.)
 
 Run on one machine per site, as any user:
 

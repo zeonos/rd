@@ -216,6 +216,16 @@ func (s *Server) handleAgentResult(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.cfg.Logger.Info("job result", "job", req.JobID, "device", req.ID, "status", req.Status, "exit", req.ExitCode)
+	if req.Status == store.RunFailed {
+		name := req.ID
+		if d, err := s.store.GetDevice(r.Context(), req.ID); err == nil && (d.Alias != "" || d.Hostname != "") {
+			name = d.Alias
+			if name == "" {
+				name = d.Hostname
+			}
+		}
+		s.notify("RD: job failed", fmt.Sprintf("Job %d failed on %s (exit code %d)", req.JobID, name, req.ExitCode))
+	}
 	writeJSON(w, http.StatusOK, map[string]any{})
 }
 

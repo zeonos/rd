@@ -113,9 +113,10 @@ func serve(ctx context.Context, st store.Store) error {
 	}
 	ntfy := os.Getenv("RD_ALERT_NTFY_URL")
 	srv := api.New(st, api.Config{
-		RequireTOTP: env("RD_REQUIRE_TOTP", "1") != "0",
-		TrustProxy:  env("RD_TRUSTED_PROXY", "0") == "1",
-		Logger:      logger,
+		RequireTOTP:  env("RD_REQUIRE_TOTP", "1") != "0",
+		OfflineAlert: time.Duration(envInt("RD_ALERT_OFFLINE_MINUTES", 10)) * time.Minute,
+		TrustProxy:   env("RD_TRUSTED_PROXY", "0") == "1",
+		Logger:       logger,
 		Notify: func(title, msg string) {
 			logger.Info("notify", "title", title, "message", msg)
 			if ntfy == "" {
@@ -475,4 +476,11 @@ func jobKeyCmd(ctx context.Context, st store.Store) error {
 	}
 	fmt.Println(base64.StdEncoding.EncodeToString(k.Public().(ed25519.PublicKey)))
 	return nil
+}
+
+func envInt(key string, def int) int {
+	if v, err := strconv.Atoi(os.Getenv(key)); err == nil {
+		return v
+	}
+	return def
 }

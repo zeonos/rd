@@ -109,3 +109,37 @@ cd /opt/rd && git pull && cd deploy
 docker compose pull hbbs hbbr caddy
 docker compose --profile api up -d --build
 ```
+
+## 9. Alerts
+
+Set `ALERT_NTFY_URL` in `/opt/rd/deploy/.env` to an [ntfy](https://ntfy.sh) topic
+(install the ntfy app on your phone and subscribe to the same topic). You get a
+push for: every login, login lockouts, new enrolments, a device offline for
+`ALERT_OFFLINE_MINUTES` (default 10) and back online, and failed jobs.
+
+## 10. Backups
+
+```bash
+ln -sf /opt/rd/deploy/backup.sh /etc/cron.daily/rd-backup
+/opt/rd/deploy/backup.sh
+ls -l /var/backups/rd
+```
+
+Daily copies of the database and of the server key pair + `.env` go to
+`/var/backups/rd` (kept `BACKUP_KEEP_DAYS`, default 14). For an off-site copy,
+set `BACKUP_REMOTE` to a Hetzner Storage Box (`ssh-keygen` on the server, add
+the public key to the Storage Box, then test with
+`ssh -p 23 u123456@u123456.your-storagebox.de ls`).
+
+### Restore onto a new server
+
+```bash
+# after setup.sh on the new server, stop the stack and put the keys back
+cd /opt/rd/deploy && docker compose --profile api down
+tar -xzf rd-keys-YYYYMMDD-HHMM.tar.gz -C /opt/rd/deploy
+docker compose --profile api up -d postgres
+gunzip -c rd-db-YYYYMMDD-HHMM.sql.gz | docker compose --profile api exec -T postgres psql -U rd -d rd
+docker compose --profile api up -d --build
+```
+
+Point DNS at the new server; clients reconnect on their own because the key is the same.

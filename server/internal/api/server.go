@@ -29,7 +29,10 @@ type Config struct {
 	SessionMax  time.Duration
 	// Notify is called (asynchronously) on security events such as logins.
 	Notify func(title, message string)
-	Logger *slog.Logger
+	// OfflineAlert sends a notification when a device has been offline this
+	// long, and another when it returns. 0 disables.
+	OfflineAlert time.Duration
+	Logger       *slog.Logger
 }
 
 type Server struct {
@@ -42,6 +45,7 @@ type Server struct {
 	mu         sync.Mutex
 	pendingTFA map[string]pendingTFA // secret -> pending second factor
 	signKey    ed25519.PrivateKey    // job signing key, loaded on first use
+	offline    map[string]bool       // devices we have alerted as offline; nil until the first check
 
 	mux *http.ServeMux
 }
@@ -160,6 +164,7 @@ func (s *Server) Maintain(ctx context.Context) {
 			if err := s.store.ExpireRuns(ctx, now); err != nil {
 				s.cfg.Logger.Error("expire job runs", "err", err)
 			}
+			s.checkOffline(ctx, now)
 			if tick%10 != 0 {
 				continue
 			}

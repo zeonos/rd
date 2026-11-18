@@ -464,3 +464,34 @@ func TestJobFlow(t *testing.T) {
 		t.Fatalf("job list: %s", body)
 	}
 }
+
+func TestOfflineAlerts(t *testing.T) {
+	e := newEnv(t)
+	e.srv.cfg.OfflineAlert = 10 * time.Minute
+	ctx := context.Background()
+	e.st.EnrollDevice(ctx, &store.Device{ID: "1", UUID: "u", Hostname: "SRV1"})
+	e.st.Heartbeat(ctx, "1", 0, e.now)
+	count := func(title string) int {
+		time.Sleep(20 * time.Millisecond) // notify runs in a goroutine
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		n := 0
+		for _, x := range e.notes {
+			if x == title {
+				n++
+			}
+		}
+		return n
+	}
+	e.srv.checkOffline(ctx, e.now.Add(time.Minute))
+	e.srv.checkOffline(ctx, e.now.Add(11*time.Minute))
+	e.srv.checkOffline(ctx, e.now.Add(12*time.Minute))
+	if n := count("RD: device offline"); n != 1 {
+		t.Fatalf("offline alerts: %d", n)
+	}
+	e.st.Heartbeat(ctx, "1", 0, e.now.Add(13*time.Minute))
+	e.srv.checkOffline(ctx, e.now.Add(13*time.Minute))
+	if n := count("RD: device back online"); n != 1 {
+		t.Fatalf("back-online alerts: %d", n)
+	}
+}

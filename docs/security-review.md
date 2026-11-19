@@ -25,6 +25,12 @@ hbbs/hbbr build (`rendezvous/`), the client patch (`client/`, see
   weekly *Security audit* workflow runs `govulncheck`, `cargo audit` on
   `rendezvous/` and `client/`, and Trivy on the API and hbbs images.
 
+- **pgx SQL placeholder confusion (GO-2026-5004)**, found by the new
+  govulncheck step: pgx v5.7.2 → v5.9.2 (needs Go 1.25; the API image now
+  builds with Go 1.25). Our queries contain no dollar-quoted literals, so it
+  was not exploitable here, but it is fixed. golang.org/x/crypto is moved to
+  its newest release at the same time.
+
 ### Accounts and sessions — OK
 
 - Passwords: Argon2id (64 MiB, 3 passes, 2 lanes), constant-time compare.

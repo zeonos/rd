@@ -25,9 +25,6 @@ jobs:
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U rd" --health-interval 5s --health-timeout 5s --health-retries 10
-    env:
-      # go.mod maps golang.org/x/* and gopkg.in/* to their GitHub mirrors, fetched directly.
-      GOPROXY: direct
     defaults:
       run:
         working-directory: server

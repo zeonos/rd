@@ -17,6 +17,7 @@ import (
 	"github.com/zeonos/rd/server/internal/auth"
 	"github.com/zeonos/rd/server/internal/console"
 	"github.com/zeonos/rd/server/internal/store"
+	"github.com/zeonos/rd/server/internal/webclient"
 )
 
 type Config struct {
@@ -149,6 +150,12 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/admin/releases", s.requireAdmin(s.adminUploadRelease))
 	m.HandleFunc("PUT /api/admin/releases/current", s.requireAdmin(s.adminSetCurrentRelease))
 	m.HandleFunc("DELETE /api/admin/releases/{build}", s.requireAdmin(s.adminDeleteRelease))
+
+	// Browser viewer (web/, built into internal/webclient/static)
+	m.Handle("GET /web/", webclient.Handler())
+	m.HandleFunc("GET /web", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/web/", http.StatusMovedPermanently)
+	})
 
 	m.Handle("GET /{$}", console.Index())
 	m.Handle("GET /static/", console.Static())

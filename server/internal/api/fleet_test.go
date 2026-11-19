@@ -162,3 +162,17 @@ func TestHeartbeatRecordsIP(t *testing.T) {
 		t.Fatalf("ip: %q", d.IP)
 	}
 }
+
+func TestBrowserViewerServed(t *testing.T) {
+	e := newEnv(t)
+	code, body := e.do("GET", "/web/", "", nil)
+	if code != 200 || !strings.Contains(body, `src="app.js"`) {
+		t.Fatalf("viewer page: %d %s", code, body)
+	}
+	if code, _ := e.do("GET", "/web/app.js", "", nil); code != 200 {
+		t.Fatal("viewer script missing")
+	}
+	if code, _ := e.do("GET", "/web", "", nil); code != 301 {
+		t.Fatalf("/web should redirect, got %d", code)
+	}
+}

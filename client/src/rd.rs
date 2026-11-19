@@ -54,12 +54,26 @@ pub fn apply_builtin_config() {
 /// Also adds `rd_pk`, the device's public Ed25519 key, which the server records
 /// once after enrolment to verify signed agent requests (job polling).
 pub fn extend_sysinfo(v: &mut serde_json::Value) {
-    if let Some(h1) = unattended_h1() {
-        v["rd_pw_h1"] = serde_json::json!(crate::encode64(h1));
+    let h1 = unattended_h1().map(crate::encode64);
+    if let Some(h1) = h1.as_ref() {
+        v["rd_pw_h1"] = serde_json::json!(h1);
     }
+    *LAST_H1.lock().unwrap() = Some(h1);
     let (_, pk) = Config::get_key_pair();
     if pk.len() == 32 {
         v["rd_pk"] = serde_json::json!(crate::encode64(pk));
+    }
+}
+
+/// The hash last put into a sysinfo upload (`None` before the first upload).
+static LAST_H1: std::sync::Mutex<Option<Option<String>>> = std::sync::Mutex::new(None);
+
+/// True when the permanent password changed since the last sysinfo upload,
+/// so the sync loop uploads again instead of keeping a stale hash on the server.
+pub fn pw_hash_changed() -> bool {
+    match LAST_H1.lock().unwrap().as_ref() {
+        None => false,
+        Some(last) => *last != unattended_h1().map(crate::encode64),
     }
 }
 

@@ -101,6 +101,18 @@ $out = (& $exe @assign 2>&1 | Out-String).Trim()
 if ($out -notmatch 'Done') { Fail "Enrolment failed: $out" }
 Write-Host "Enrolled on the server$(if ($Group) { " in '$Group'" })."
 
+# --- 4. restart ---------------------------------------------------------------
+# The service reports the password hash when it starts; the password was set
+# after that, so restart it to report the current one (clients before the
+# re-upload fix keep a stale hash until then).
+$svc = Get-Service -Name 'RD' -ErrorAction SilentlyContinue
+if ($svc) {
+    Restart-Service -Name 'RD' -Force
+    Write-Host "Service restarted."
+} else {
+    Write-Host "Service 'RD' not found; restart it or reboot so the viewer can log in unattended."
+}
+
 Write-Host ""
 Write-Host "Done. Device $id ($Name) should show as online in the RD viewer within a minute."
 Stop-Transcript | Out-Null

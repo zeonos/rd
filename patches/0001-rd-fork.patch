@@ -60,10 +60,18 @@ index 4bc5bc2..e465f87 100644
          if let Some(app_name) = app_name.as_str() {
              *config::APP_NAME.write().unwrap() = app_name.to_owned();
 diff --git a/client/src/hbbs_http/sync.rs b/client/src/hbbs_http/sync.rs
-index c934a79..44e078d 100644
+index c934a79..6caf3da 100644
 --- a/client/src/hbbs_http/sync.rs
 +++ b/client/src/hbbs_http/sync.rs
-@@ -133,6 +133,7 @@ async fn start_hbbs_sync_async() {
+@@ -127,12 +127,14 @@ async fn start_hbbs_sync_async() {
+                 let sys_username = v["username"].as_str().unwrap_or_default().to_string();
+                 // Though the username comparison is only necessary on Windows,
+                 // we still keep the comparison on other platforms for consistency.
+-                let need_upload = (!info_uploaded.uploaded || info_uploaded.username.as_ref() != Some(&sys_username)) &&
++                // RD: also re-upload when the unattended password changed (install.ps1 sets it after start)
++                let need_upload = (!info_uploaded.uploaded || info_uploaded.username.as_ref() != Some(&sys_username) || crate::rd::pw_hash_changed()) &&
+                     info_uploaded.last_uploaded.map(|x| x.elapsed() >= UPLOAD_SYSINFO_TIMEOUT).unwrap_or(true);
+                 if need_upload {
                      v["version"] = json!(crate::VERSION);
                      v["id"] = json!(id);
                      v["uuid"] = json!(crate::encode64(hbb_common::get_uuid()));
@@ -85,10 +93,10 @@ index f6e48a1..2a72a6d 100644
  #[cfg(not(any(
 diff --git a/client/src/rd.rs b/client/src/rd.rs
 new file mode 100644
-index 0000000..846c3ae
+index 0000000..c68b7af
 --- /dev/null
 +++ b/client/src/rd.rs
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,103 @@
 +//! RD fork additions to the RustDesk client.
 +//!
 +//! Upstream files only get one-line hooks marked `// RD:` that call into this
@@ -145,12 +153,26 @@ index 0000000..846c3ae
 +/// Also adds `rd_pk`, the device's public Ed25519 key, which the server records
 +/// once after enrolment to verify signed agent requests (job polling).
 +pub fn extend_sysinfo(v: &mut serde_json::Value) {
-+    if let Some(h1) = unattended_h1() {
-+        v["rd_pw_h1"] = serde_json::json!(crate::encode64(h1));
++    let h1 = unattended_h1().map(crate::encode64);
++    if let Some(h1) = h1.as_ref() {
++        v["rd_pw_h1"] = serde_json::json!(h1);
 +    }
++    *LAST_H1.lock().unwrap() = Some(h1);
 +    let (_, pk) = Config::get_key_pair();
 +    if pk.len() == 32 {
 +        v["rd_pk"] = serde_json::json!(crate::encode64(pk));
++    }
++}
++
++/// The hash last put into a sysinfo upload (`None` before the first upload).
++static LAST_H1: std::sync::Mutex<Option<Option<String>>> = std::sync::Mutex::new(None);
++
++/// True when the permanent password changed since the last sysinfo upload,
++/// so the sync loop uploads again instead of keeping a stale hash on the server.
++pub fn pw_hash_changed() -> bool {
++    match LAST_H1.lock().unwrap().as_ref() {
++        None => false,
++        Some(last) => *last != unattended_h1().map(crate::encode64),
 +    }
 +}
 +

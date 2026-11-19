@@ -23,6 +23,7 @@ type loginRequest struct {
 	TfaCode          string `json:"tfaCode"`
 	VerificationCode string `json:"verificationCode"`
 	Secret           string `json:"secret"`
+	Remember         bool   `json:"remember"` // web console: remember this browser for 30 days
 	DeviceInfo       struct {
 		OS   string `json:"os"`
 		Type string `json:"type"`
@@ -99,6 +100,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			s.finishLogin(w, r, u, req.ID, ip)
 			return
 		}
+		if req.ID == "" && s.trusted(r, u) {
+			s.cfg.Logger.Info("login with remembered browser", "user", u.Name, "ip", ip)
+			s.finishLogin(w, r, u, req.ID, ip)
+			return
+		}
 		// Password OK: ask for the TOTP code (the client's "tfa_check" dialog).
 		secret, _ := auth.NewToken("tfa_")
 		s.mu.Lock()
@@ -149,6 +155,9 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		delete(s.pendingTFA, req.Secret)
 		s.mu.Unlock()
+		if req.Remember && p.clientID == "" {
+			s.setTrustCookie(w, r, u)
+		}
 		s.finishLogin(w, r, u, p.clientID, ip)
 
 	default:

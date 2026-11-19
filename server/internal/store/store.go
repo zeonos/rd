@@ -115,6 +115,7 @@ type SysinfoUpdate struct {
 type Store interface {
 	JobStore
 	FleetStore
+	LibraryStore
 	Close()
 
 	// Users

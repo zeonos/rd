@@ -31,6 +31,7 @@ import (
 	"syscall"
 	"text/tabwriter"
 	"time"
+	_ "time/tzdata" // schedules use IANA time zones; the image has no zoneinfo
 
 	"github.com/zeonos/rd/server/internal/api"
 	"github.com/zeonos/rd/server/internal/auth"

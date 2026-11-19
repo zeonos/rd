@@ -18,6 +18,7 @@ type Memory struct {
 	tokens    map[int64]*EnrollToken
 	policies  map[int64]map[string]string
 	jobState  *memJobs
+	lib       *memLibrary
 	fleet     *memFleet
 	nextID    int64
 	nowSource func() time.Time

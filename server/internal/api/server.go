@@ -51,6 +51,7 @@ type Server struct {
 	mu         sync.Mutex
 	pendingTFA map[string]pendingTFA // secret -> pending second factor
 	signKey    ed25519.PrivateKey    // job signing key, loaded on first use
+	trustMAC   []byte                // remember-browser HMAC key, loaded on first use
 	offline    map[string]bool       // devices we have alerted as offline; nil until the first check
 	diskAlerts map[string]time.Time  // device+disk -> last low-disk alert
 
@@ -97,6 +98,7 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/login", s.handleLogin)
 	m.HandleFunc("GET /api/login-options", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, []string{}) })
 	m.HandleFunc("POST /api/logout", s.handleLogout)
+	m.HandleFunc("POST /api/forget-browser", s.handleForgetBrowser)
 	m.HandleFunc("POST /api/currentUser", s.requireUser(s.handleCurrentUser))
 
 	// Device side (RustDesk client compatible, unauthenticated by design;
@@ -141,6 +143,18 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/admin/jobs", s.requireAdmin(s.adminCreateJob))
 	m.HandleFunc("GET /api/admin/jobs/{id}", s.requireAdmin(s.adminGetJob))
 	m.HandleFunc("POST /api/admin/jobs/{id}/cancel", s.requireAdmin(s.adminCancelJob))
+	m.HandleFunc("POST /api/admin/jobs/preview", s.requireAdmin(s.adminPreviewJob))
+	// Script library (library.go, schedules.go)
+	m.HandleFunc("GET /api/admin/scripts/export", s.requireAdmin(s.adminExportScripts))
+	m.HandleFunc("POST /api/admin/scripts/import", s.requireAdmin(s.adminImportScripts))
+	m.HandleFunc("GET /api/admin/vars", s.requireAdmin(s.adminGetVars))
+	m.HandleFunc("PUT /api/admin/vars", s.requireAdmin(s.adminSetVars))
+	m.HandleFunc("GET /api/admin/devices/{id}/runs", s.requireAdmin(s.adminDeviceRuns))
+	m.HandleFunc("GET /api/admin/schedules", s.requireAdmin(s.adminListSchedules))
+	m.HandleFunc("POST /api/admin/schedules", s.requireAdmin(s.adminSaveSchedule))
+	m.HandleFunc("PUT /api/admin/schedules/{id}", s.requireAdmin(s.adminSaveSchedule))
+	m.HandleFunc("DELETE /api/admin/schedules/{id}", s.requireAdmin(s.adminDeleteSchedule))
+	m.HandleFunc("POST /api/admin/schedules/{id}/run", s.requireAdmin(s.adminRunScheduleNow))
 
 	// Fleet: inventory, releases and auto-update (fleet.go)
 	m.HandleFunc("POST /api/agent/inventory", s.handleAgentInventory)
@@ -194,6 +208,7 @@ func (s *Server) Maintain(ctx context.Context) {
 			}
 			s.checkOffline(ctx, now)
 			s.autoUpdate(ctx, now)
+			s.runSchedules(ctx, now)
 			if tick%10 != 0 {
 				continue
 			}

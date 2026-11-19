@@ -40,7 +40,7 @@ async function api(method, path, body) {
   if (S.token) headers.Authorization = "Bearer " + S.token;
   const res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
   if (res.status === 401 && S.token) {
-    logout("Your session ended. Log in again.");
+    logout("Your session ended. Sign in again.");
     throw new ApiError(401, "Unauthorized");
   }
   if (res.status === 204) return null;
@@ -74,6 +74,10 @@ function when(iso) { return iso ? new Date(iso).toLocaleString() : ""; }
 function deviceName(d) { return d.alias || d.hostname || d.id; }
 function go(hash) { if (location.hash === hash) render(); else location.hash = hash; }
 
+function brand(sub) {
+  return h("div", { class: "brand" }, h("img", { class: "brand-mark", src: "/static/mark.svg", alt: "" }), "RD", h("span", { class: "sub" }, sub));
+}
+
 function statusDot(kind, label) {
   return h("span", { class: "status" }, h("span", { class: "dot " + kind, "aria-hidden": "true" }), label);
 }
@@ -98,9 +102,13 @@ function renderLogin(msg) {
   const err = h("p", { class: "error", role: "alert" }, msg || "");
   const user = h("input", { type: "text", autocomplete: "username", required: true, value: S.user || "admin" });
   const pass = h("input", { type: "password", autocomplete: "current-password", required: true });
-  const code = h("input", { type: "text", inputmode: "numeric", autocomplete: "one-time-code", pattern: "[0-9]{6}", maxlength: "6" });
-  const codeField = h("label", { class: "field", hidden: true }, h("span", {}, "Authenticator code"), code);
-  const submit = h("button", { class: "btn primary", type: "submit" }, "Log in");
+  const code = h("input", { type: "text", class: "code", inputmode: "numeric", autocomplete: "one-time-code", pattern: "[0-9]{6}", maxlength: "6" });
+  const remember = h("input", { type: "checkbox" });
+  const codeField = h("div", { hidden: true },
+    h("label", { class: "field" }, h("span", {}, "Authenticator code"), code),
+    h("label", { class: "check" }, remember, "Remember this browser for 30 days"),
+    h("p", { class: "hint" }, "On a remembered browser you sign in with your password only. Changing your password or authenticator ends it."));
+  const submit = h("button", { class: "btn primary", type: "submit" }, "Continue");
 
   async function onsubmit(e) {
     e.preventDefault();
@@ -114,12 +122,12 @@ function renderLogin(msg) {
           secret = res.secret;
           codeField.hidden = false;
           user.disabled = pass.disabled = true;
-          submit.textContent = "Verify";
+          submit.textContent = "Sign in";
           code.focus();
           return;
         }
       } else {
-        res = await api("POST", "/api/login", { username: user.value, tfaCode: code.value, secret, type: "email_code" });
+        res = await api("POST", "/api/login", { username: user.value, tfaCode: code.value, secret, type: "email_code", remember: remember.checked });
       }
       if (res.type === "access_token") {
         S.token = res.access_token; S.user = res.user.name;
@@ -137,7 +145,7 @@ function renderLogin(msg) {
 
   app.replaceChildren(h("div", { class: "login" },
     h("form", { onsubmit },
-      h("div", { class: "brand" }, h("span", { class: "brand-mark" }), "RD console"),
+      brand("Console"),
       h("label", { class: "field" }, h("span", {}, "Username"), user),
       h("label", { class: "field" }, h("span", {}, "Password"), pass),
       codeField, err, submit)));
@@ -168,18 +176,22 @@ function devicesIn(loc) {
 
 // ---------- shell ----------
 
-const TABS = [["devices", "Devices"], ["jobs", "Jobs"], ["scripts", "Scripts"], ["settings", "Settings"], ["updates", "Updates"], ["enrol", "Enrolment"]];
+const TABS = [["devices", "Devices"], ["jobs", "Jobs"], ["scripts", "Scripts"], ["vars", "Variables"], ["settings", "Settings"], ["updates", "Updates"], ["enrol", "Enrolment"]];
 
 function shell(section, content) {
   const tabs = h("nav", { class: "tabs", "aria-label": "Sections" },
     TABS.map(([id, label]) => h("a", { href: "#/" + id, "aria-current": section === id ? "page" : false }, label)));
   return h("div", { class: "shell" },
     h("header", { class: "top" },
-      h("div", { class: "brand" }, h("span", { class: "brand-mark" }), "RD console"),
+      brand("Console"),
       tabs,
       h("div", { class: "top-right" },
-        h("span", { class: "muted" }, S.user),
-        h("button", { class: "btn", onclick: () => logout() }, "Log out"))),
+        h("span", {}, S.user),
+        h("button", {
+          class: "btn link", title: "Ask for the authenticator code again at the next sign-in from this browser",
+          onclick: async () => { await api("POST", "/api/forget-browser"); toast("This browser is no longer remembered"); },
+        }, "Forget this browser"),
+        h("button", { class: "btn", onclick: () => logout() }, "Sign out"))),
     locationRail(section),
     h("main", { class: "main", id: "main" }, content));
 }
@@ -330,13 +342,284 @@ function deviceDetail(d) {
   const inv = h("div", { class: "panel" }, h("h2", {}, "Inventory"), h("p", { class: "muted" }, "Loading"));
   api("GET", `/api/admin/devices/${d.id}/inventory`).then((x) => inv.replaceChildren(...inventoryView(x, d)))
     .catch((e) => inv.replaceChildren(h("p", { class: "error" }, e.message)));
-  panel.append(info, edit, inv, pol);
+  const vars = h("div", { class: "panel" }, h("h2", {}, "Variables"), h("p", { class: "muted" }, "Loading"));
+  api("GET", "/api/admin/vars").then((v) => vars.replaceChildren(...deviceVarsView(d, v)))
+    .catch((e) => vars.replaceChildren(h("p", { class: "error" }, e.message)));
+  const hist = h("div", { class: "panel" }, h("h2", {}, "Script history"), h("p", { class: "muted" }, "Loading"));
+  api("GET", `/api/admin/devices/${d.id}/runs`).then((runs) => hist.replaceChildren(h("h2", {}, "Script history"), ...runHistory(runs)))
+    .catch((e) => hist.replaceChildren(h("p", { class: "error" }, e.message)));
+  panel.append(info, edit, vars, hist, inv, pol);
   return panel;
+}
+
+// ---------- variables ----------
+
+const BUILTINS = [
+  ["RD_DEVICE_NAME", "Display name, or the computer name"], ["RD_HOSTNAME", "Computer name"],
+  ["RD_DEVICE_ID", "RD ID"], ["RD_LOCATION", "Location path"], ["RD_PUBLIC_IP", "Public IP of the last heartbeat"],
+];
+const VAR_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
+
+// Values a location passes down: its ancestors first, nearest wins.
+function inheritedVars(groupId, groupVars) {
+  const chain = [];
+  for (let g = groupById(groupId); g && chain.length < 64; g = g.parent_id != null ? groupById(g.parent_id) : null) chain.unshift(g);
+  const out = {};
+  for (const g of chain) for (const [k, v] of Object.entries(groupVars[g.id] || {})) out[k] = { value: v, from: g.path };
+  return out;
+}
+
+function deviceVarsView(d, v) {
+  const own = (v.devices || {})[d.id] || {};
+  const inh = d.group_id != null ? inheritedVars(d.group_id, v.groups || {}) : {};
+  const names = [...new Set([...Object.keys(inh), ...Object.keys(own)])].sort((a, b) => a.localeCompare(b));
+  const rows = names.map((n) => h("tr", {},
+    h("td", { class: "mono" }, n),
+    h("td", {}, own[n] ?? inh[n].value),
+    h("td", { class: "muted" }, own[n] !== undefined ? (inh[n] ? `this device (overrides ${inh[n].from})` : "this device") : `from ${inh[n].from}`)));
+  return [
+    h("div", { class: "head" }, h("h2", {}, "Variables"), h("div", { class: "spacer" }),
+      h("button", { class: "btn small", onclick: () => varsDialog(`Variables for ${deviceName(d)}`, own, inh, (vals) => api("PUT", "/api/admin/vars", { devices: { [d.id]: vals } })) }, "Edit")),
+    names.length ? h("div", { class: "table-wrap" }, h("table", {}, h("tbody", {}, rows)))
+      : h("p", { class: "muted" }, "None set. Scripts still get the built-in RD_ variables."),
+  ];
+}
+
+// Name/value rows with add and remove. inherited: {name: {value, from}} shown as placeholders.
+function kvEditor(values, inherited = {}) {
+  const box = h("div", { class: "kv" }, h("span", { class: "kh" }, "Name"), h("span", { class: "kh" }, "Value"), h("span", {}));
+  const rows = [];
+  const add = (k = "", v = "") => {
+    const name = h("input", { type: "text", value: k, placeholder: "IP", "aria-label": "Variable name", spellcheck: "false" });
+    const val = h("input", { type: "text", value: v, "aria-label": "Value", spellcheck: "false" });
+    const hint = () => { const i = inherited[name.value.trim()]; val.placeholder = i ? `${i.value} (from ${i.from})` : ""; };
+    name.addEventListener("input", hint); hint();
+    const row = { name, val };
+    const x = h("button", { type: "button", class: "x", title: "Remove", "aria-label": "Remove", onclick: () => { name.remove(); val.remove(); x.remove(); rows.splice(rows.indexOf(row), 1); } }, "×");
+    rows.push(row);
+    box.append(name, val, x);
+  };
+  for (const [k, v] of Object.entries(values)) add(k, v);
+  for (const k of Object.keys(inherited)) if (!(k in values)) add(k, "");
+  if (!rows.length) add();
+  return {
+    el: h("div", {}, box, h("button", { type: "button", class: "btn small", onclick: () => { add(); rows[rows.length - 1].name.focus(); } }, "Add variable")),
+    values() {
+      const out = {};
+      for (const { name, val } of rows) {
+        const k = name.value.trim();
+        if (!k && !val.value) continue;
+        if (!VAR_NAME.test(k)) throw new Error(`"${k}" is not a valid name: letters, digits and _, starting with a letter`);
+        if (k in out) throw new Error(`${k} is listed twice`);
+        if (val.value !== "") out[k] = val.value;
+      }
+      return out;
+    },
+  };
+}
+
+function varsDialog(title, own, inherited, save) {
+  const ed = kvEditor(own, inherited);
+  dialog(title, [ed.el, h("p", { class: "hint" }, "Leave a value empty to use the inherited one. Scripts get each variable as ",
+    h("code", {}, "$NAME"), " (PowerShell) or ", h("code", {}, "%NAME%"), " (command prompt).")], "Save", async () => {
+    await save(ed.values()); toast("Variables saved"); render();
+  });
+}
+
+async function varsView() {
+  const v = await api("GET", "/api/admin/vars");
+  const devVars = v.devices || {};
+  const grpVars = v.groups || {};
+  let names = [...v.names];
+  const inputs = []; // {kind, id, name, el, orig}
+  const thead = h("thead", {});
+  const tbody = h("tbody", {});
+  const err = h("p", { class: "error", role: "alert" });
+  const devices = [...S.devices].sort((a, b) => (a.group || "").localeCompare(b.group || "") || deviceName(a).localeCompare(deviceName(b)));
+
+  function cell(kind, id, name, value, inherited) {
+    const el = h("input", { type: "text", value: value ?? "", placeholder: inherited ? inherited.value : "", spellcheck: "false",
+      title: inherited ? `Inherited from ${inherited.from}` : "", "aria-label": `${name} for ${kind} ${id}` });
+    const orig = value ?? "";
+    el.addEventListener("input", () => el.classList.toggle("changed", el.value !== orig));
+    inputs.push({ kind, id, name, el, orig });
+    return h("td", {}, el);
+  }
+  function build() {
+    inputs.length = 0;
+    thead.replaceChildren(h("tr", {}, h("th", {}, "Device or location"), names.map((n) => h("th", {}, h("span", { class: "mono" }, n),
+      (v.used_by[n] || []).length ? null : h("button", { class: "x", title: `Remove the ${n} column (clears its values when you save)`, onclick: () => { names = names.filter((x) => x !== n); build(); } }, "×")))));
+    const rows = [];
+    if (S.groups.length) rows.push(h("tr", { class: "section" }, h("td", { colspan: names.length + 1 }, "Locations: sublocations and devices inherit these")));
+    for (const g of S.groups) {
+      const inh = g.parent_id != null ? inheritedVars(g.parent_id, grpVars) : {};
+      rows.push(h("tr", {}, h("td", { class: "name" }, g.path), names.map((n) => cell("group", g.id, n, (grpVars[g.id] || {})[n], inh[n]))));
+    }
+    rows.push(h("tr", { class: "section" }, h("td", { colspan: names.length + 1 }, "Devices")));
+    for (const d of devices) {
+      const inh = d.group_id != null ? inheritedVars(d.group_id, grpVars) : {};
+      rows.push(h("tr", {}, h("td", { class: "name" }, h("strong", {}, deviceName(d)), h("div", { class: "muted" }, d.group || "Unassigned")),
+        names.map((n) => cell("device", d.id, n, (devVars[d.id] || {})[n], inh[n]))));
+    }
+    if (!names.length) rows.push(h("tr", {}, h("td", { class: "empty", colspan: 1 }, "No variables yet. Add one, or give a script variables and they appear here.")));
+    tbody.replaceChildren(...rows);
+  }
+  build();
+
+  const newName = h("input", { type: "text", size: "32", placeholder: "New variable, e.g. SYNC_PRIMARY", spellcheck: "false", "aria-label": "New variable name" });
+  const addCol = h("form", {
+    class: "row", onsubmit: (e) => {
+      e.preventDefault(); err.textContent = "";
+      const n = newName.value.trim();
+      if (!VAR_NAME.test(n)) { err.textContent = `"${n}" is not a valid name: letters, digits and _, starting with a letter`; return; }
+      if (/^RD_/i.test(n)) { err.textContent = "Names starting with RD_ are built in"; return; }
+      if (!names.some((x) => x.toLowerCase() === n.toLowerCase())) { names.push(n); build(); }
+      newName.value = "";
+    },
+  }, newName, h("button", { class: "btn", type: "submit" }, "Add column"));
+
+  // Collect full maps for every row that changed (or lost a column).
+  function collect() {
+    const out = { devices: {}, groups: {} };
+    const touched = new Set(inputs.filter((i) => i.el.value !== i.orig).map((i) => i.kind + ":" + i.id));
+    for (const [id, vars] of Object.entries(devVars)) if (Object.keys(vars).some((k) => !names.includes(k))) touched.add("device:" + id);
+    for (const [id, vars] of Object.entries(grpVars)) if (Object.keys(vars).some((k) => !names.includes(k))) touched.add("group:" + id);
+    for (const key of touched) {
+      const [kind, id] = key.split(/:(.*)/s);
+      const vals = {};
+      for (const i of inputs) if (i.kind === kind && String(i.id) === id && i.el.value !== "") vals[i.name] = i.el.value;
+      (kind === "device" ? out.devices : out.groups)[id] = vals;
+    }
+    return out;
+  }
+  const save = async () => {
+    err.textContent = "";
+    const body = collect();
+    const n = Object.keys(body.devices).length + Object.keys(body.groups).length;
+    if (!n) { toast("Nothing changed"); return; }
+    try { await api("PUT", "/api/admin/vars", body); toast(`Saved ${n} row${n > 1 ? "s" : ""}`); render(); } catch (ex) { err.textContent = ex.message; }
+  };
+
+  // CSV: kind;id;name;VAR1;VAR2... (import accepts , or ;)
+  const exportCsv = () => {
+    // Semicolons, so Excel with a Danish (or other comma-decimal) locale opens it in columns.
+    const esc = (x) => /[";,\n\r]/.test(x) ? `"${x.replace(/"/g, '""')}"` : x;
+    const lines = [["kind", "id", "name", ...names].map(esc).join(";")];
+    for (const g of S.groups) lines.push(["location", String(g.id), g.path, ...names.map((n) => (grpVars[g.id] || {})[n] || "")].map(esc).join(";"));
+    for (const d of devices) lines.push(["device", d.id, deviceName(d), ...names.map((n) => (devVars[d.id] || {})[n] || "")].map(esc).join(";"));
+    download(`rd-variables-${new Date().toISOString().slice(0, 10)}.csv`, "\ufeff" + lines.join("\r\n") + "\r\n", "text/csv");
+  };
+  const file = h("input", { type: "file", accept: ".csv,text/csv", hidden: true });
+  file.addEventListener("change", async () => {
+    const f = file.files[0];
+    file.value = "";
+    if (!f) return;
+    err.textContent = "";
+    try {
+      const rows = parseCsv((await f.text()).replace(/^\ufeff/, ""));
+      const head = rows.shift() || [];
+      const col = (n) => head.findIndex((x) => x.trim().toLowerCase() === n);
+      const [ck, ci, cn] = [col("kind"), col("id"), col("name")];
+      if (ci < 0 && cn < 0) throw new Error("The CSV needs an id or a name column");
+      const varCols = head.map((x, i) => [x.trim(), i]).filter(([x, i]) => i !== ck && i !== ci && i !== cn && x);
+      for (const [x] of varCols) if (!VAR_NAME.test(x) || /^RD_/i.test(x)) throw new Error(`Column "${x}" is not a valid variable name`);
+      const body = { devices: {}, groups: {} };
+      const unknown = [];
+      for (const r of rows) {
+        if (!r.some((x) => x.trim())) continue;
+        const kind = ck >= 0 ? r[ck].trim().toLowerCase() : "device";
+        const id = ci >= 0 ? (r[ci] || "").trim() : "";
+        const name = cn >= 0 ? (r[cn] || "").trim().toLowerCase() : "";
+        let key = null;
+        if (kind === "location") {
+          const g = S.groups.find((x) => String(x.id) === id) || S.groups.find((x) => x.path.toLowerCase() === name);
+          if (g) key = ["groups", g.id];
+        } else {
+          const d = S.devices.find((x) => x.id === id) || S.devices.find((x) => [x.alias, x.hostname].some((n) => (n || "").toLowerCase() === name));
+          if (d) key = ["devices", d.id];
+        }
+        if (!key) { unknown.push(id || name); continue; }
+        const cur = { ...((key[0] === "devices" ? devVars : grpVars)[key[1]] || {}) };
+        for (const [x, i] of varCols) { const val = (r[i] || "").trim(); if (val) cur[x] = val; else delete cur[x]; }
+        body[key[0]][key[1]] = cur;
+      }
+      const n = Object.keys(body.devices).length + Object.keys(body.groups).length;
+      if (!n) throw new Error("No rows matched a device or location" + (unknown.length ? `: ${unknown.slice(0, 5).join(", ")}` : ""));
+      const cols = varCols.map(([x]) => x).join(", ");
+      if (!confirm(`Set ${cols} on ${n} row${n > 1 ? "s" : ""} from ${f.name}? Empty cells clear the value.` + (unknown.length ? `\n\nNot found, skipped: ${unknown.slice(0, 10).join(", ")}` : ""))) return;
+      await api("PUT", "/api/admin/vars", body);
+      toast(`Imported ${n} row${n > 1 ? "s" : ""}`); render();
+    } catch (ex) { err.textContent = ex.message; }
+  });
+
+  return [
+    h("div", { class: "head" },
+      h("div", {}, h("h1", {}, "Variables"), h("div", { class: "sub" }, "Values that differ per server, like an IP or the Syncthing primary. Scripts get them as $NAME.")),
+      h("div", { class: "spacer" }),
+      h("button", { class: "btn", onclick: exportCsv }, "Export CSV"),
+      h("button", { class: "btn", onclick: () => file.click() }, "Import CSV"), file,
+      h("button", { class: "btn primary", onclick: save }, "Save changes")),
+    h("div", { class: "row", style: "margin-bottom:12px" }, addCol), err,
+    h("div", { class: "table-wrap grid" }, h("table", {}, thead, tbody)),
+    h("div", { class: "panel" }, h("h2", {}, "How values are picked"),
+      h("p", {}, "For each device: a value typed when you start the script wins, then the device's own value, then its location (the nearest one up the tree), then the script's default."),
+      h("p", {}, "Built in, always set:"),
+      h("dl", { class: "facts" }, BUILTINS.flatMap(([n, d]) => [h("dt", { class: "mono" }, n), h("dd", {}, d)]))),
+  ];
+}
+
+function download(name, text, type) {
+  const a = h("a", { href: URL.createObjectURL(new Blob([text], { type })), download: name });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [], field = "", q = false;
+  const sep = (text.split(/\r?\n/, 1)[0].match(/;/g) || []).length > (text.split(/\r?\n/, 1)[0].match(/,/g) || []).length ? ";" : ",";
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else q = false; } else field += c;
+    } else if (c === '"') q = true;
+    else if (c === sep) { row.push(field); field = ""; }
+    else if (c === "\n" || c === "\r") {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      row.push(field); rows.push(row); row = []; field = "";
+    } else field += c;
+  }
+  if (field || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+// ---------- run history ----------
+
+function varsLine(vars) {
+  const keys = Object.keys(vars || {}).filter((k) => !k.startsWith("RD_")).sort();
+  return keys.length ? keys.map((k) => `${k}=${vars[k]}`).join("  ") : "";
+}
+
+function runHistory(runs) {
+  if (!runs.length) return [h("p", { class: "muted" }, "No scripts or power actions have run here yet.")];
+  return [h("div", { class: "table-wrap" }, h("table", {},
+    h("thead", {}, h("tr", {}, h("th", {}, "Job"), h("th", {}, "Result"), h("th", {}, "When"))),
+    h("tbody", {}, runs.map((r) => {
+      const [kind, label] = runStatus[r.status] || ["", r.status];
+      const detail = r.output || varsLine(r.vars);
+      return h("tr", {},
+        h("td", {}, h("a", { href: "#/jobs/" + r.job_id }, r.job_name),
+          detail ? h("details", { class: "run" }, h("summary", { class: "muted" }, "Output"),
+            varsLine(r.vars) ? h("div", { class: "hint mono" }, varsLine(r.vars)) : null,
+            r.output ? h("pre", { class: "out" }, r.output) : null) : null),
+        h("td", {}, statusDot(kind, label), r.exit_code != null && r.status !== "success" ? h("div", { class: "muted" }, `exit ${r.exit_code}`) : null),
+        h("td", { class: "nowrap" }, ago(r.finished_at || r.sent_at || r.created_at)));
+    }))))];
 }
 
 // Fixed disks from the last inventory: name, bar of used space, free / total.
 function storageCell(d) {
-  if (!d.disks || !d.disks.length) return h("span", { class: "muted" }, d.online ? "Waiting for inventory" : "");
+  if (!d.disks || !d.disks.length) return h("span", { class: "muted nowrap" }, d.online ? "Waiting for inventory" : "");
   const num = (n) => (n / 1e9).toFixed(n >= 1e11 ? 0 : 1);
   return h("div", { class: "disks" }, d.disks.map((k) => {
     const pct = k.size ? Math.round(k.free * 100 / k.size) : 0;
@@ -478,6 +761,7 @@ function dialog(title, body, submitLabel, onsubmit) {
 }
 
 function targetText(t) {
+  if (t.all) return "All devices";
   if (t.devices?.length) return t.devices.length === 1 ? deviceName(S.devices.find((d) => d.id === t.devices[0]) || { id: t.devices[0] }) : `${t.devices.length} devices`;
   if (t.groups?.length) return t.groups.map((g) => groupById(g)?.path).join(", ") + " (including sublocations)";
   return "";
@@ -497,39 +781,82 @@ function scheduleFields() {
   };
 }
 
-async function runDialog(target) {
+async function runDialog(target, scriptId) {
   const scripts = (await api("GET", "/api/admin/scripts")) || [];
   let mode = scripts.length ? "saved" : "inline";
-  const pick = h("select", {}, scripts.map((s) => h("option", { value: s.id }, s.name)));
+  const pick = h("select", {}, scripts.map((s) => h("option", { value: s.id, selected: s.id === scriptId }, s.name)));
   const shellSel = h("select", {}, h("option", { value: "powershell" }, "PowerShell"), h("option", { value: "cmd" }, "Command prompt"));
   const runAs = h("select", {}, h("option", { value: "system" }, "SYSTEM"), h("option", { value: "user" }, "Logged-on user"));
   const timeout = h("input", { type: "number", min: "1", max: "86400", value: "300" });
   const body = h("textarea", { spellcheck: "false", placeholder: "Get-Service | Where-Object Status -eq Stopped" });
-  const saved = h("div", {}, h("label", { class: "field" }, h("span", {}, "Script"), pick));
+  const paramBox = h("div", {});
+  const preview = h("div", {});
+  let paramInputs = {};
+  const saved = h("div", {}, h("label", { class: "field" }, h("span", {}, "Script"), pick), paramBox);
   const inline = h("div", {},
     h("div", { class: "row" },
       h("label", { class: "field" }, h("span", {}, "Shell"), shellSel),
       h("label", { class: "field" }, h("span", {}, "Run as"), runAs),
       h("label", { class: "field" }, h("span", {}, "Timeout (seconds)"), timeout)),
-    h("label", { class: "field" }, h("span", {}, "Script"), body));
+    h("label", { class: "field" }, h("span", {}, "Script"), body),
+    h("p", { class: "hint" }, "Variables set on the devices and their locations are available too, e.g. ", h("code", {}, "$IP"), "."));
   const bSaved = h("button", { type: "button", class: "btn", onclick: () => setMode("saved") }, "Saved script");
   const bInline = h("button", { type: "button", class: "btn", onclick: () => setMode("inline") }, "Write one now");
   function setMode(m) {
-    mode = m; saved.hidden = m !== "saved"; inline.hidden = m !== "inline";
+    mode = m; saved.hidden = m !== "saved"; inline.hidden = m !== "inline"; preview.hidden = m !== "saved";
     bSaved.setAttribute("aria-pressed", String(m === "saved")); bInline.setAttribute("aria-pressed", String(m === "inline"));
+    if (m === "saved") refresh();
   }
+  const values = () => {
+    const out = {};
+    for (const [k, el] of Object.entries(paramInputs)) if (el.value !== "") out[k] = el.value;
+    return out;
+  };
+  let timer = null, seq = 0;
+  async function loadPreview() {
+    const my = ++seq;
+    try {
+      const res = await api("POST", "/api/admin/jobs/preview", { ...target, script_id: Number(pick.value), vars: values() });
+      if (my !== seq) return;
+      const params = res.params || [];
+      if (!params.length) { preview.replaceChildren(); return; }
+      const missing = res.devices.filter((d) => d.missing && d.missing.length).length;
+      preview.replaceChildren(
+        h("p", { class: missing ? "error" : "hint" }, missing ? `${missing} device${missing > 1 ? "s" : ""} lack a value. Type one above, or set it under Variables.` : "Values each device will get:"),
+        h("div", { class: "table-wrap preview" }, h("table", {},
+          h("thead", {}, h("tr", {}, h("th", {}, "Device"), params.map((p) => h("th", { class: "mono" }, p.name)))),
+          h("tbody", {}, res.devices.map((d) => h("tr", {}, h("td", {}, d.name),
+            params.map((p) => (d.missing || []).includes(p.name) ? h("td", { class: "miss" }, "missing") : h("td", {}, d.vars[p.name]))))))));
+    } catch (ex) { if (my === seq) preview.replaceChildren(h("p", { class: "error" }, ex.message)); }
+  }
+  function refresh() {
+    const sc = scripts.find((s) => String(s.id) === pick.value);
+    paramInputs = {};
+    const ps = (sc && sc.params) || [];
+    paramBox.replaceChildren(...(ps.length ? [
+      h("p", { class: "hint" }, "Leave empty to use each device's own value."),
+      h("div", { class: "row" }, ps.map((p) => {
+        const el = h("input", { type: "text", placeholder: p.default ? `Device value, else ${p.default}` : "Device value", spellcheck: "false",
+          oninput: () => { clearTimeout(timer); timer = setTimeout(loadPreview, 300); } });
+        paramInputs[p.name] = el;
+        return h("label", { class: "field", title: p.description || "" }, h("span", { class: "mono" }, p.name), el);
+      }))] : []));
+    loadPreview();
+  }
+  pick.addEventListener("change", refresh);
   bSaved.disabled = !scripts.length;
-  setMode(mode);
   const sched = scheduleFields();
-  dialog("Run script", [h("p", {}, "On: ", h("strong", {}, targetText(target))), h("div", { class: "choice" }, bSaved, bInline), saved, inline, sched.el],
+  const dlg = dialog("Run script", [h("p", {}, "On: ", h("strong", {}, targetText(target))), h("div", { class: "choice" }, bSaved, bInline), saved, inline, preview, sched.el],
     "Run script", async () => {
       const req = { ...target, ...sched.values() };
-      if (mode === "saved") req.script_id = Number(pick.value);
+      if (mode === "saved") Object.assign(req, { script_id: Number(pick.value), vars: values() });
       else Object.assign(req, { shell: shellSel.value, run_as: runAs.value, timeout_sec: Number(timeout.value), body: body.value });
       const res = await api("POST", "/api/admin/jobs", req);
       toast(`Sent to ${res.devices} device${res.devices > 1 ? "s" : ""}`);
       go("#/jobs/" + res.job.id);
     });
+  dlg.classList.add("wide");
+  setMode(mode);
 }
 
 function powerDialog(target) {
@@ -571,7 +898,8 @@ async function jobsView() {
     const total = Object.values(c).reduce((a, b) => a + b, 0);
     const pending = (c.queued || 0) + (c.sent || 0);
     return h("tr", { class: "click", onclick: () => go("#/jobs/" + j.id) },
-      h("td", {}, h("strong", {}, j.name), h("div", { class: "muted" }, j.kind === "power" ? "Power action" : j.shell === "cmd" ? "Command prompt" : "PowerShell")),
+      h("td", {}, h("strong", {}, j.name), j.schedule_id ? h("span", { class: "pill" }, "Scheduled") : null,
+        h("div", { class: "muted" }, j.kind === "power" ? "Power action" : j.kind === "update" ? "Client update" : j.shell === "cmd" ? "Command prompt" : "PowerShell")),
       h("td", {}, j.target),
       h("td", {}, when(j.created_at), new Date(j.not_before) > new Date() ? h("div", { class: "muted" }, "starts " + ago(j.not_before)) : null),
       h("td", { class: "num" }, String(c.success || 0)),
@@ -601,12 +929,16 @@ async function jobView(id) {
       h("td", {}, statusDot(kind, label)),
       h("td", {}, r.exit_code == null ? "" : String(r.exit_code)),
       h("td", {}, r.finished_at ? when(r.finished_at) : r.sent_at ? "started " + ago(r.sent_at) : (d && !d.online ? "waiting for device to come online" : "")));
-    const out = r.output ? h("tr", {}, h("td", { colspan: 4 }, h("pre", { class: "out" }, r.output))) : null;
+    const vl = varsLine(r.vars);
+    const out = r.output || vl ? h("tr", {}, h("td", { colspan: 4 },
+      vl ? h("div", { class: "hint mono" }, vl) : null,
+      r.output ? h("pre", { class: "out" }, r.output) : null)) : null;
     return [row, out];
   });
   const meta = h("dl", { class: "facts" },
     h("dt", {}, "Target"), h("dd", {}, job.target),
-    h("dt", {}, "Created"), h("dd", {}, `${when(job.created_at)} by ${job.created_by}`),
+    h("dt", {}, "Created"), h("dd", {}, job.schedule_id ? `${when(job.created_at)} by a schedule` : `${when(job.created_at)} by ${job.created_by}`),
+    job.script_id ? [h("dt", {}, "Script"), h("dd", {}, h("a", { href: "#/scripts/" + job.script_id }, "Open the saved script"))] : [],
     h("dt", {}, "Starts"), h("dd", {}, when(job.not_before)),
     h("dt", {}, "Runs until"), h("dd", {}, when(job.deadline)),
     job.kind === "script" ? [h("dt", {}, "Runs as"), h("dd", {}, job.run_as === "user" ? "Logged-on user" : "SYSTEM"),
@@ -633,19 +965,189 @@ async function jobView(id) {
 
 // ---------- scripts ----------
 
+const DAYS = [["Mon", 1], ["Tue", 2], ["Wed", 3], ["Thu", 4], ["Fri", 5], ["Sat", 6], ["Sun", 0]];
+const pad2 = (n) => String(n).padStart(2, "0");
+
+function scheduleText(sc) {
+  if (sc.kind === "hours") return sc.every_hours === 1 ? "Every hour" : `Every ${sc.every_hours} hours`;
+  const at = `${pad2(Math.floor(sc.at_minute / 60))}:${pad2(sc.at_minute % 60)}`;
+  const days = DAYS.filter(([, b]) => sc.weekdays & (1 << b)).map(([n]) => n);
+  const when = days.length === 7 ? "Every day" : sc.weekdays === 0b0111110 ? "Weekdays" : days.join(", ");
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return `${when} at ${at}` + (sc.tz && sc.tz !== tz ? ` (${sc.tz})` : "");
+}
+
+async function exportScripts(ids) {
+  const b = await api("GET", "/api/admin/scripts/export" + (ids ? "?ids=" + ids.join(",") : ""));
+  const one = ids && b.scripts.length === 1 ? b.scripts[0].name.replace(/[^\w.-]+/g, "-") : "rd-scripts";
+  download(`${one}-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(b, null, 2) + "\n", "application/json");
+}
+
+function importScripts() {
+  const file = h("input", { type: "file", accept: ".json,application/json", required: true });
+  const replace = h("input", { type: "checkbox" });
+  const result = h("div", {});
+  dialog("Import scripts", [
+    h("label", { class: "field" }, h("span", {}, "Export file (.json)"), file),
+    h("label", { class: "check" }, replace, "Replace scripts that have the same name"),
+    h("p", { class: "hint" }, "Without it, scripts whose name already exists are left alone. Schedules and device values are not part of the file."),
+    result,
+  ], "Import", async () => {
+    const f = file.files[0];
+    if (!f) throw new Error("Choose a file");
+    let b;
+    try { b = JSON.parse(await f.text()); } catch { throw new Error("That file is not JSON"); }
+    const res = await api("POST", "/api/admin/scripts/import", { ...b, replace: replace.checked });
+    const parts = [`${res.created} added`, `${res.updated} replaced`];
+    if (res.skipped && res.skipped.length) parts.push(`${res.skipped.length} skipped (name exists)`);
+    toast("Import: " + parts.join(", "));
+    if (res.errors && res.errors.length) {
+      result.replaceChildren(h("p", { class: "error" }, "Not imported:"), h("pre", { class: "out" }, res.errors.join("\n")));
+      render();
+      return false; // keep the dialog open to show the errors
+    }
+    render();
+  });
+}
+
+function paramsEditor(params) {
+  const box = h("div", { class: "kv three" }, h("span", { class: "kh" }, "Variable"), h("span", { class: "kh" }, "Default"), h("span", { class: "kh" }, "Description"), h("span", {}));
+  const rows = [];
+  const add = (p = { name: "", default: "", description: "" }) => {
+    const name = h("input", { type: "text", value: p.name, placeholder: "IP", spellcheck: "false", "aria-label": "Variable name" });
+    const def = h("input", { type: "text", value: p.default, placeholder: "None (required)", spellcheck: "false", "aria-label": "Default value" });
+    const desc = h("input", { type: "text", value: p.description, placeholder: "What it is for", "aria-label": "Description" });
+    const row = { name, def, desc };
+    const x = h("button", { type: "button", class: "x", title: "Remove", "aria-label": "Remove", onclick: () => { [name, def, desc, x].forEach((e) => e.remove()); rows.splice(rows.indexOf(row), 1); } }, "×");
+    rows.push(row);
+    box.append(name, def, desc, x);
+  };
+  for (const p of params || []) add(p);
+  return {
+    el: h("div", {}, box, h("button", { type: "button", class: "btn small", onclick: () => { add(); rows[rows.length - 1].name.focus(); } }, "Add variable")),
+    values() {
+      const out = [];
+      for (const r of rows) {
+        const n = r.name.value.trim();
+        if (!n && !r.def.value && !r.desc.value) continue;
+        if (!VAR_NAME.test(n)) throw new Error(`"${n}" is not a valid variable name: letters, digits and _, starting with a letter`);
+        out.push({ name: n, default: r.def.value, description: r.desc.value });
+      }
+      return out;
+    },
+  };
+}
+
+function scheduleDialog(script, sc) {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  sc = sc || { kind: "days", every_hours: 6, at_minute: 6 * 60, weekdays: 0x7f, target: { all: true }, vars: {}, deadline_hours: 1, enabled: true, tz };
+  const kind = h("select", {}, h("option", { value: "days" }, "At a set time"), h("option", { value: "hours" }, "Every few hours"));
+  kind.value = sc.kind;
+  const every = h("input", { type: "number", min: "1", max: "168", value: String(sc.every_hours || 6) });
+  const at = h("input", { type: "time", value: `${pad2(Math.floor(sc.at_minute / 60))}:${pad2(sc.at_minute % 60)}`, required: true });
+  const dayBoxes = DAYS.map(([n, b]) => { const c = h("input", { type: "checkbox", checked: !!(sc.weekdays & (1 << b)) }); c.dataset.bit = b; return [n, c]; });
+  const target = h("select", {}, h("option", { value: "all" }, "All devices"), S.groups.map((g) => h("option", { value: String(g.id) }, g.path)));
+  const custom = (sc.target.devices && sc.target.devices.length) || (sc.target.groups || []).length > 1;
+  if (custom) target.prepend(h("option", { value: "keep" }, sc.target_text || "As before"));
+  target.value = custom ? "keep" : sc.target.all ? "all" : String((sc.target.groups || [])[0] ?? "all");
+  const deadline = h("select", {}, [[1, "1 hour"], [4, "4 hours"], [12, "12 hours"], [24, "24 hours"]].map(([v, l]) => h("option", { value: String(v) }, l)));
+  deadline.value = String(sc.deadline_hours || 1);
+  const enabled = h("input", { type: "checkbox", checked: sc.enabled });
+  const vals = {};
+  const hoursRow = h("div", { class: "row" }, h("label", { class: "field" }, h("span", {}, "Hours between runs"), every));
+  const daysRow = h("div", {},
+    h("label", { class: "field" }, h("span", {}, `Time (${sc.tz && sc.kind === "days" ? sc.tz : tz})`), at),
+    h("div", { class: "field" }, h("span", { class: "kh" }, "Days"), h("div", { class: "days" }, dayBoxes.map(([n, c]) => h("label", {}, c, n)))));
+  const sync = () => { hoursRow.hidden = kind.value !== "hours"; daysRow.hidden = kind.value !== "days"; };
+  kind.addEventListener("change", sync); sync();
+  const params = script.params || [];
+  dialog(sc.id ? `Edit schedule: ${script.name}` : `Schedule ${script.name}`, [
+    h("label", { class: "field" }, h("span", {}, "Repeat"), kind), hoursRow, daysRow,
+    h("div", { class: "row" },
+      h("label", { class: "field" }, h("span", {}, "Run on"), target),
+      h("label", { class: "field" }, h("span", {}, "Offline devices run it if back within"), deadline)),
+    params.length ? h("div", {}, h("h3", {}, "Values"), h("p", { class: "hint" }, "Leave empty to use each device's own value. Devices without a value are skipped and you get a notification."),
+      h("div", { class: "row" }, params.map((p) => {
+        const el = h("input", { type: "text", value: (sc.vars || {})[p.name] || "", placeholder: p.default ? `Device value, else ${p.default}` : "Device value", spellcheck: "false" });
+        vals[p.name] = el;
+        return h("label", { class: "field" }, h("span", { class: "mono" }, p.name), el);
+      }))) : null,
+    h("label", { class: "check" }, enabled, "Active"),
+  ], sc.id ? "Save schedule" : "Create schedule", async () => {
+    const [hh, mm] = at.value.split(":").map(Number);
+    let weekdays = 0;
+    for (const [, c] of dayBoxes) if (c.checked) weekdays |= 1 << Number(c.dataset.bit);
+    const t = target.value === "keep" ? sc.target : target.value === "all" ? { all: true } : { groups: [Number(target.value)] };
+    const v = {};
+    for (const [k, el] of Object.entries(vals)) if (el.value !== "") v[k] = el.value;
+    const body = { script_id: script.id, kind: kind.value, every_hours: Number(every.value), at_minute: hh * 60 + mm, weekdays,
+      tz: kind.value === "days" && sc.id && sc.kind === "days" ? sc.tz : tz, target: t, vars: v, deadline_hours: Number(deadline.value), enabled: enabled.checked };
+    const res = sc.id ? await api("PUT", "/api/admin/schedules/" + sc.id, body) : await api("POST", "/api/admin/schedules", body);
+    toast(`Next run ${when(res.next_run)}`); render();
+  });
+}
+
+function schedulesTable(list, script, showScript) {
+  if (!list.length) return h("p", { class: "muted" }, showScript ? "No schedules. Open a script and choose Add schedule." : "Not scheduled.");
+  return h("div", { class: "table-wrap" }, h("table", {},
+    h("thead", {}, h("tr", {}, showScript ? h("th", {}, "Script") : null, h("th", {}, "When"), h("th", {}, "On"), h("th", {}, "Next"), h("th", {}, "Last"), h("th", {}, ""))),
+    h("tbody", {}, list.map((sc) => h("tr", {},
+      showScript ? h("td", {}, h("a", { href: "#/scripts/" + sc.script_id }, sc.script_name)) : null,
+      h("td", {}, scheduleText(sc), sc.enabled ? null : h("div", {}, h("span", { class: "tag" }, "Paused"))),
+      h("td", {}, sc.target_text || "All devices"),
+      h("td", { class: "nowrap" }, sc.enabled ? ago(sc.next_run) : "-"),
+      h("td", { class: "nowrap" }, sc.last_job_id ? h("a", { href: "#/jobs/" + sc.last_job_id }, ago(sc.last_run)) : sc.last_run ? ago(sc.last_run) : "never"),
+      h("td", { class: "num" },
+        h("button", {
+          class: "btn small", title: "Start it now; the schedule stays as it is", onclick: async () => {
+            const res = await api("POST", `/api/admin/schedules/${sc.id}/run`);
+            if (res.note) alert(res.note);
+            go("#/jobs/" + res.job.id);
+          },
+        }, "Run now"), " ",
+        script ? h("button", { class: "btn small", onclick: () => scheduleDialog(script, sc) }, "Edit") : null, " ",
+        h("button", {
+          class: "btn link danger", onclick: async () => {
+            if (!confirm(`Delete this schedule (${scheduleText(sc)})? Jobs it already started stay in the log.`)) return;
+            await api("DELETE", "/api/admin/schedules/" + sc.id); toast("Schedule deleted"); render();
+          },
+        }, "Delete")))))));
+}
+
+function jobRunsTable(jobs) {
+  if (!jobs.length) return h("p", { class: "muted" }, "Not run yet.");
+  return h("div", { class: "table-wrap" }, h("table", {},
+    h("thead", {}, h("tr", {}, h("th", {}, "Started"), h("th", { class: "num" }, "Done"), h("th", { class: "num" }, "Failed"), h("th", { class: "num" }, "Waiting"))),
+    h("tbody", {}, jobs.map((j) => {
+      const c = j.counts || {};
+      return h("tr", { class: "click", onclick: () => go("#/jobs/" + j.id) },
+        h("td", {}, h("div", { class: "nowrap" }, when(j.created_at), j.schedule_id ? h("span", { class: "pill" }, "Scheduled") : null), h("div", { class: "muted" }, j.target)),
+        h("td", { class: "num" }, String(c.success || 0)),
+        h("td", { class: "num" }, c.failed ? h("strong", { class: "error" }, String(c.failed)) : "0"),
+        h("td", { class: "num" }, String((c.queued || 0) + (c.sent || 0))));
+    }))));
+}
+
 async function scriptsView(id) {
-  const scripts = (await api("GET", "/api/admin/scripts")) || [];
-  const current = id === "new" ? { name: "", description: "", shell: "powershell", run_as: "system", timeout_sec: 300, body: "" }
-    : scripts.find((s) => String(s.id) === id);
+  const [scripts, schedules] = await Promise.all([api("GET", "/api/admin/scripts"), api("GET", "/api/admin/schedules")]);
+  const current = id === "new" ? { name: "", description: "", shell: "powershell", run_as: "system", timeout_sec: 300, body: "", params: [] }
+    : (scripts || []).find((s) => String(s.id) === id);
   const list = h("div", { class: "table-wrap" }, h("table", {},
-    h("thead", {}, h("tr", {}, h("th", {}, "Script"), h("th", {}, "Shell"), h("th", {}, "Changed"))),
+    h("thead", {}, h("tr", {}, h("th", {}, "Script"), h("th", {}, "Variables"), h("th", {}, "Changed"))),
     h("tbody", {}, scripts.length ? scripts.map((s) => h("tr", { class: "click" + (String(s.id) === id ? " sel" : ""), onclick: () => go("#/scripts/" + s.id) },
-      h("td", {}, h("strong", {}, s.name), s.description ? h("div", { class: "muted" }, s.description) : null),
-      h("td", {}, s.shell === "cmd" ? "Command prompt" : "PowerShell"),
-      h("td", {}, ago(s.updated_at)))) : h("tr", {}, h("td", { colspan: 3, class: "empty" }, "No saved scripts. Save the ones you run often.")))));
-  const out = [h("div", { class: "head" }, h("div", {}, h("h1", {}, "Scripts"), h("div", { class: "sub" }, "Saved scripts you can run on any device or location")),
-    h("div", { class: "spacer" }), h("button", { class: "btn primary", onclick: () => go("#/scripts/new") }, "New script"))];
-  if (!current) { out.push(list); return out; }
+      h("td", {}, h("strong", {}, s.name), schedules.some((x) => x.script_id === s.id) ? h("span", { class: "pill" }, "Scheduled") : null,
+        h("div", { class: "muted" }, s.description || (s.shell === "cmd" ? "Command prompt" : "PowerShell"))),
+      h("td", { class: "mono" }, (s.params || []).map((p) => p.name).join(", ")),
+      h("td", { class: "nowrap" }, ago(s.updated_at)))) : h("tr", {}, h("td", { colspan: 3, class: "empty" }, "No saved scripts. Save the ones you run often, or import an export file.")))));
+  const out = [h("div", { class: "head" }, h("div", {}, h("h1", {}, "Scripts"), h("div", { class: "sub" }, "Saved scripts you can run on any device or location, by hand or on a schedule")),
+    h("div", { class: "spacer" }),
+    h("button", { class: "btn", onclick: importScripts }, "Import"),
+    scripts.length ? h("button", { class: "btn", onclick: () => exportScripts() }, "Export all") : null,
+    h("button", { class: "btn primary", onclick: () => go("#/scripts/new") }, "New script"))];
+  if (!current) {
+    out.push(list, h("div", { class: "panel" }, h("h2", {}, "Schedules"), schedulesTable(schedules, null, true)));
+    return out;
+  }
 
   const name = h("input", { type: "text", required: true, value: current.name });
   const desc = h("input", { type: "text", value: current.description });
@@ -655,35 +1157,71 @@ async function scriptsView(id) {
   runAs.value = current.run_as;
   const timeout = h("input", { type: "number", min: "1", max: "86400", value: String(current.timeout_sec) });
   const body = h("textarea", { spellcheck: "false", required: true }, current.body);
+  body.addEventListener("keydown", (e) => {
+    if (e.key !== "Tab" || e.shiftKey) return; // Tab indents; Shift+Tab leaves the editor
+    e.preventDefault();
+    body.setRangeText("    ", body.selectionStart, body.selectionEnd, "end");
+  });
+  const params = paramsEditor(current.params);
+  const usage = h("p", { class: "hint" });
+  const syncUsage = () => usage.replaceChildren(h("span", {}, "Use them as ", h("code", {}, shellSel.value === "cmd" ? "%IP%" : "$IP"),
+    ". Each device gets its own value (set under Variables), its location's, or the default. Always set: ",
+    BUILTINS.flatMap(([n], i) => [i ? ", " : "", h("code", {}, n)]), "."));
+  shellSel.addEventListener("change", syncUsage); syncUsage();
   const err = h("p", { class: "error", role: "alert" });
   const form = h("form", {
     class: "panel", onsubmit: async (e) => {
       e.preventDefault(); err.textContent = "";
-      const payload = { name: name.value, description: desc.value, shell: shellSel.value, run_as: runAs.value, timeout_sec: Number(timeout.value), body: body.value };
       try {
+        const payload = { name: name.value, description: desc.value, shell: shellSel.value, run_as: runAs.value, timeout_sec: Number(timeout.value), body: body.value, params: params.values() };
         const saved = current.id ? await api("PUT", "/api/admin/scripts/" + current.id, payload) : await api("POST", "/api/admin/scripts", payload);
         toast("Script saved"); go("#/scripts/" + saved.id);
       } catch (ex) { err.textContent = ex.message; }
     },
   },
-  h("h2", {}, current.id ? "Edit script" : "New script"),
+  h("div", { class: "head" }, h("h2", {}, current.id ? "Edit script" : "New script"), h("div", { class: "spacer" }),
+    h("button", { class: "btn link", type: "button", onclick: () => go("#/scripts") }, "Close")),
   h("label", { class: "field" }, h("span", {}, "Name"), name),
   h("label", { class: "field" }, h("span", {}, "Description"), desc),
   h("div", { class: "row" },
     h("label", { class: "field" }, h("span", {}, "Shell"), shellSel),
     h("label", { class: "field" }, h("span", {}, "Run as"), runAs),
     h("label", { class: "field" }, h("span", {}, "Timeout (seconds)"), timeout)),
+  h("div", { class: "field" }, h("h3", {}, "Variables"), params.el, usage),
   h("label", { class: "field" }, h("span", {}, "Script"), body), err,
   h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit" }, "Save script"),
-    h("button", { class: "btn", type: "button", onclick: () => go("#/scripts") }, "Close"),
+    current.id ? h("button", { class: "btn", type: "button", onclick: () => exportScripts([current.id]) }, "Export") : null,
     h("div", { class: "spacer" }),
     current.id ? h("button", {
       class: "btn danger", type: "button", onclick: async () => {
-        if (!confirm(`Delete the script "${current.name}"? Jobs already sent keep their copy.`)) return;
+        if (!confirm(`Delete the script "${current.name}" and its schedules? Jobs already sent keep their copy.`)) return;
         await api("DELETE", "/api/admin/scripts/" + current.id); toast("Script deleted"); go("#/scripts");
       },
     }, "Delete script") : null));
-  out.push(h("div", { class: "split" }, form, list));
+  if (!current.id) {
+    out.push(h("div", { class: "split" }, form, list));
+    return out;
+  }
+  const mine = schedules.filter((x) => x.script_id === current.id);
+  const history = await api("GET", "/api/admin/jobs?limit=25&script_id=" + current.id);
+  const side = h("div", {},
+    h("div", { class: "panel" },
+      h("div", { class: "head" }, h("h2", {}, "Run"), h("div", { class: "spacer" }),
+        h("button", { class: "btn primary", onclick: () => go("#/devices") }, "Pick devices")),
+      h("p", { class: "hint" }, "Select devices or a location under Devices and choose Run script, or run it on a location here:"),
+      h("div", { class: "row" }, h("select", { id: "run-loc", "aria-label": "Location" }, h("option", { value: "all" }, "All devices"), S.groups.map((g) => h("option", { value: String(g.id) }, g.path))),
+        h("button", {
+          class: "btn", onclick: () => {
+            const v = document.getElementById("run-loc").value;
+            runDialog(v === "all" ? { all: true } : { groups: [Number(v)] }, current.id);
+          },
+        }, "Run…"))),
+    h("div", { class: "panel" },
+      h("div", { class: "head" }, h("h2", {}, "Schedules"), h("div", { class: "spacer" }),
+        h("button", { class: "btn", onclick: () => scheduleDialog(current) }, "Add schedule")),
+      schedulesTable(mine, current, false)),
+    h("div", { class: "panel" }, h("h2", {}, "Run history"), jobRunsTable(history || [])));
+  out.push(h("div", { class: "split wide-side" }, form, side));
   return out;
 }
 
@@ -831,6 +1369,7 @@ async function render() {
     switch (section) {
       case "jobs": content = arg ? await jobView(arg) : await jobsView(); break;
       case "scripts": content = await scriptsView(arg); break;
+      case "vars": content = await varsView(); break;
       case "settings": content = await settingsView(arg); break;
       case "enrol": content = await enrolView(); break;
       case "updates": content = await updatesView(); break;

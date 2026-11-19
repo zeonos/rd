@@ -233,6 +233,7 @@ function devicesView(selectedId) {
   });
   const locName = S.loc === "all" ? "All devices" : S.loc === "unassigned" ? "Unassigned" : (groupById(S.loc)?.path || "");
   const online = list.filter((d) => d.online).length;
+  const showSync = S.devices.some((d) => d.sync && d.sync.level !== "none");
 
   const search = h("input", {
     type: "search", placeholder: "Search name, ID, user", value: S.search, "aria-label": "Search devices",
@@ -258,6 +259,7 @@ function devicesView(selectedId) {
   h("td", { class: "nowrap" }, d.id),
   h("td", { class: "nowrap" }, d.group),
   h("td", {}, storageCell(d)),
+  showSync ? h("td", {}, syncCell(d)) : null,
   h("td", { class: "opt" }, d.os || h("span", { class: "muted" }, "Not reported")),
   h("td", { class: "opt" }, d.username || ""),
   h("td", { class: "opt nowrap" }, d.online ? (d.conns ? `${d.conns} session${d.conns > 1 ? "s" : ""}` : "") : ago(d.last_seen)),
@@ -265,8 +267,8 @@ function devicesView(selectedId) {
 
   const table = h("div", { class: "table-wrap" + (selectedId ? " compact" : "") }, h("table", {},
     h("thead", {}, h("tr", {}, h("th", {}, allBox), h("th", {}, "Status"), h("th", {}, "Name"), h("th", {}, "ID"),
-      h("th", {}, "Location"), h("th", {}, "Storage (free / total)"), h("th", { class: "opt" }, "OS"), h("th", { class: "opt" }, "User"), h("th", { class: "opt" }, "Activity"), h("th", {}, ""))),
-    h("tbody", {}, rows.length ? rows : h("tr", {}, h("td", { colspan: 10, class: "empty" },
+      h("th", {}, "Location"), h("th", {}, "Storage (free / total)"), showSync ? h("th", {}, "Syncthing") : null, h("th", { class: "opt" }, "OS"), h("th", { class: "opt" }, "User"), h("th", { class: "opt" }, "Activity"), h("th", {}, ""))),
+    h("tbody", {}, rows.length ? rows : h("tr", {}, h("td", { colspan: showSync ? 11 : 10, class: "empty" },
       S.devices.length ? "No devices match." : "No devices yet. Create an enrolment token and install the client.")))));
 
   const actions = sel.length ? [
@@ -348,7 +350,10 @@ function deviceDetail(d) {
   const hist = h("div", { class: "panel" }, h("h2", {}, "Script history"), h("p", { class: "muted" }, "Loading"));
   api("GET", `/api/admin/devices/${d.id}/runs`).then((runs) => hist.replaceChildren(h("h2", {}, "Script history"), ...runHistory(runs)))
     .catch((e) => hist.replaceChildren(h("p", { class: "error" }, e.message)));
-  panel.append(info, edit, vars, hist, inv, pol);
+  const sync = d.sync && d.sync.level !== "none" ? h("div", { class: "panel" }, h("h2", {}, "Syncthing"), h("p", { class: "muted" }, "Loading")) : null;
+  if (sync) api("GET", `/api/admin/devices/${d.id}/sync`).then((x) => sync.replaceChildren(...syncView(x)))
+    .catch((e) => sync.replaceChildren(h("p", { class: "error" }, e.message)));
+  panel.append(info, ...(sync ? [sync] : []), edit, vars, hist, inv, pol);
   return panel;
 }
 
@@ -628,6 +633,42 @@ function storageCell(d) {
       h("meter", { min: 0, max: k.size || 1, value: k.size - k.free, low: (k.size || 1) * 0.75, high: (k.size || 1) * 0.9, optimum: 0, "aria-label": `${k.name} used` }),
       h("span", { class: "dval" }, `${num(k.free)} / ${gb(k.size)}`));
   }));
+}
+
+const SYNC_DOT = { ok: "ok", syncing: "wait", warn: "wait", error: "bad", stale: "hollow" };
+
+function syncCell(d) {
+  const x = d.sync;
+  if (!x) return h("span", { class: "muted" }, d.online ? "No report yet" : "");
+  if (x.level === "none") return h("span", { class: "muted" }, "Not installed");
+  return h("span", { class: "status", title: (x.detail || [x.text]).join("\n") }, h("span", { class: "dot " + (SYNC_DOT[x.level] || ""), "aria-hidden": "true" }), x.text);
+}
+
+function syncView({ report: r, summary: sum }) {
+  const head = h("h2", {}, "Syncthing");
+  if (!r) return [head, h("p", { class: "muted" }, "No report yet.")];
+  const out = [head, h("p", {}, h("span", { class: "status" }, h("span", { class: "dot " + (SYNC_DOT[sum.level] || "") }), sum.text)),
+    (sum.detail || []).length > 1 ? h("ul", {}, sum.detail.map((t) => h("li", {}, t))) : null,
+    h("p", { class: "hint" }, `${r.my_name || "This device"}, Syncthing ${r.version || ""}, reported ${ago(sum.at)}`)];
+  if (r.error) out.push(h("pre", { class: "out" }, r.error));
+  const names = Object.fromEntries((r.devices || []).map((x) => [x.id, x]));
+  const types = { sendonly: "Send only", receiveonly: "Receive only", sendreceive: "Send & receive", receiveencrypted: "Encrypted" };
+  for (const f of r.folders || []) {
+    const local = f.paused ? "Paused" : f.need_bytes > 0 || (f.state || "").startsWith("sync")
+      ? `${f.state || "syncing"}, ${gb(f.need_bytes) === "-" ? "" : gb(f.need_bytes) + " to go"}` : f.errors ? `${f.errors} failed items` : f.state === "idle" ? "Up to date" : (f.state || "");
+    out.push(h("div", { class: "table-wrap", style: "margin-top:10px" }, h("table", {},
+      h("thead", {}, h("tr", {}, h("th", {}, f.label || f.id, h("div", { class: "muted mono" }, f.path)), h("th", { class: "num" }, types[f.type] || ""))),
+      h("tbody", {},
+        h("tr", {}, h("td", {}, "This device"), h("td", { class: "num" }, local)),
+        (f.devices || []).map((p) => {
+          const dv = names[p.id] || {};
+          const st = p.remote_state === "notSharing" ? "Not sharing" : p.remote_state === "paused" || dv.paused ? "Paused"
+            : !dv.connected ? "Not connected" : p.completion >= 100 ? "Up to date" : `${Math.floor(p.completion)}%`;
+          return h("tr", {}, h("td", {}, dv.name || p.id.split("-")[0]),
+            h("td", { class: "num" + (st === "Not connected" ? " error" : "") }, st));
+        })))));
+  }
+  return out.filter(Boolean);
 }
 
 function gb(n) { return n ? (n / 1e9).toFixed(n >= 1e11 ? 0 : 1) + " GB" : "-"; }

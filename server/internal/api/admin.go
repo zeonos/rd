@@ -34,6 +34,7 @@ type deviceJSON struct {
 	Build       int             `json:"build"`
 	InventoryAt *time.Time      `json:"inventory_at"`
 	Disks       json.RawMessage `json:"disks,omitempty"` // [{name,label,size,free}] from the last inventory
+	Sync        *SyncSummary    `json:"sync"`            // Syncthing status; nil = never reported
 }
 
 func (s *Server) toDeviceJSON(d *store.Device) deviceJSON {
@@ -47,6 +48,7 @@ func (s *Server) toDeviceJSON(d *store.Device) deviceJSON {
 	if d.Disks != "" {
 		j.Disks = json.RawMessage(d.Disks)
 	}
+	j.Sync = s.syncSummary(d)
 	return j
 }
 

@@ -1,6 +1,6 @@
 // RD browser viewer: sign in (or reuse the console's session), pick a device,
 // view and control it. Limited on purpose: screen, mouse, keyboard,
-// Ctrl+Alt+Del, screens, scale, quality, typing text. No files or clipboard.
+// Ctrl+Alt+Del, screens, scale, quality, typing text, text clipboard. No files.
 
 import { enums } from "./pb";
 import {
@@ -180,7 +180,7 @@ async function renderDevices() {
       "div",
       { class: "page" },
       h("header", { class: "top" }, mark(), h("strong", {}, "RD"), search, h("span", { class: "spacer" }), h("span", { class: "muted-on-ink" }, S.user), h("button", { class: "btn ghost", onclick: signOut }, "Sign out")),
-      h("main", { class: "devices" }, h("h1", {}, "Devices"), h("p", { class: "muted" }, "The browser viewer is for quick access: screen, mouse, keyboard and Ctrl+Alt+Del. Use the RD app for files and clipboard."), body),
+      h("main", { class: "devices" }, h("h1", {}, "Devices"), h("p", { class: "muted" }, "The browser viewer is for quick access: screen, mouse, keyboard, Ctrl+Alt+Del and text clipboard. Use the RD app for file transfer."), body),
     ),
   );
   search.focus();
@@ -262,12 +262,70 @@ async function renderSession(id: string) {
             ...sessions.map((s) => h("button", { class: "btn", onclick: () => { status.textContent = "Opening the session…"; resolve(s.sid); } }, s.name)),
           );
         }),
+      clipboard: (text) => clip.fromRemote(text),
       closed: (reason) => {
         status.hidden = false;
         status.replaceChildren(h("p", {}, reason), h("button", { class: "btn primary", onclick: () => renderSession(id) }, "Reconnect"), " ", h("a", { class: "btn", href: "#" }, "Back to devices"));
       },
     },
   );
+
+  // Text clipboard. Remote to here: written when the device's clipboard
+  // changes, or when this tab next has focus (browsers only allow writes
+  // from a focused page). Here to remote: sent whenever the tab gains focus,
+  // once the browser allows reading; "Send clipboard" asks for that.
+  const clipNote = h("span", { class: "label", role: "status" });
+  const clip = {
+    last: "", // last text either side had, so we never echo it back
+    pending: "",
+    note(t: string) {
+      clipNote.textContent = t;
+      setTimeout(() => { if (clipNote.textContent === t) clipNote.textContent = ""; }, 3000);
+    },
+    async fromRemote(text: string) {
+      if (text === this.last) return;
+      this.last = text;
+      this.pending = text;
+      await this.flush();
+    },
+    async flush() {
+      if (!this.pending || !document.hasFocus()) return;
+      try {
+        await navigator.clipboard.writeText(this.pending);
+        this.pending = "";
+        this.note("Copied from remote");
+      } catch {}
+    },
+    async toRemote(ask: boolean) {
+      if (!ask) {
+        try {
+          const p = await navigator.permissions.query({ name: "clipboard-read" as PermissionName });
+          if (p.state !== "granted") return;
+        } catch {
+          return;
+        }
+      }
+      let text = "";
+      try {
+        text = await navigator.clipboard.readText();
+      } catch {
+        if (ask) this.note("The browser did not allow reading the clipboard");
+        return;
+      }
+      if (!text || text === this.last) {
+        if (ask) this.note(text ? "Already on the remote clipboard" : "Your clipboard has no text");
+        return;
+      }
+      this.last = text;
+      sess.sendClipboard(text);
+      this.note("Sent to remote clipboard");
+    },
+  };
+  const onFocus = () => {
+    clip.flush();
+    clip.toRemote(false);
+  };
+  window.addEventListener("focus", onFocus);
 
   function renderScreens(displays: Display[], cur: number) {
     if (displays.length <= 1) {
@@ -364,12 +422,15 @@ async function renderSession(id: string) {
       },
       "Type text…",
     ),
+    h("div", { class: "group" },
+      h("button", { class: "btn", type: "button", title: "Put the text on your clipboard on the remote clipboard. After you allow it once, this happens by itself when you come back to this tab.", onclick: async () => { await clip.toRemote(true); canvas.focus(); } }, "Send clipboard"),
+      clipNote),
     h("span", { class: "spacer" }),
     h("button", { class: "btn danger", type: "button", onclick: () => { sess.close("Disconnected."); } }, "Disconnect"),
   );
   app().replaceChildren(h("div", { class: "session" }, h("header", { class: "top" }, mark(), title, h("span", { class: "spacer" }), h("a", { class: "btn ghost", href: "#" }, "Devices")), toolbar, stage));
   canvas.focus();
-  window.addEventListener("hashchange", () => sess.close("Disconnected."), { once: true });
+  window.addEventListener("hashchange", () => { window.removeEventListener("focus", onFocus); sess.close("Disconnected."); }, { once: true });
   sess.start();
 }
 

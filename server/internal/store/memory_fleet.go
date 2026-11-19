@@ -29,6 +29,18 @@ func (m *Memory) SetDeviceIP(ctx context.Context, id, ip string) error {
 	return nil
 }
 
+func (m *Memory) SetDeviceSync(ctx context.Context, id, report string, at time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	d, ok := m.devices[id]
+	if !ok {
+		return ErrNotFound
+	}
+	t := at
+	d.Sync, d.SyncAt = report, &t
+	return nil
+}
+
 func (m *Memory) SetDeviceInventory(ctx context.Context, id, inventory, disks string, at time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

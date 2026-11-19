@@ -39,6 +39,9 @@ type Config struct {
 	// DiskAlertPercent alerts when a disk in a device inventory has less free
 	// space than this. 0 disables.
 	DiskAlertPercent int
+	// SyncAlert alerts when a device's Syncthing has been out of sync this
+	// long. 0 disables.
+	SyncAlert time.Duration
 }
 
 type Server struct {
@@ -48,12 +51,14 @@ type Server struct {
 	ipLimit *auth.Limiter
 	usLimit *auth.Limiter
 
-	mu         sync.Mutex
-	pendingTFA map[string]pendingTFA // secret -> pending second factor
-	signKey    ed25519.PrivateKey    // job signing key, loaded on first use
-	trustMAC   []byte                // remember-browser HMAC key, loaded on first use
-	offline    map[string]bool       // devices we have alerted as offline; nil until the first check
-	diskAlerts map[string]time.Time  // device+disk -> last low-disk alert
+	mu          sync.Mutex
+	pendingTFA  map[string]pendingTFA // secret -> pending second factor
+	signKey     ed25519.PrivateKey    // job signing key, loaded on first use
+	trustMAC    []byte                // remember-browser HMAC key, loaded on first use
+	offline     map[string]bool       // devices we have alerted as offline; nil until the first check
+	diskAlerts  map[string]time.Time  // device+disk -> last low-disk alert
+	syncSince   map[string]time.Time  // device -> first report out of sync
+	syncAlerted map[string]bool       // device -> out-of-sync alert sent
 
 	mux *http.ServeMux
 }
@@ -158,6 +163,8 @@ func (s *Server) routes() {
 
 	// Fleet: inventory, releases and auto-update (fleet.go)
 	m.HandleFunc("POST /api/agent/inventory", s.handleAgentInventory)
+	m.HandleFunc("POST /api/agent/sync", s.handleAgentSync)
+	m.HandleFunc("GET /api/admin/devices/{id}/sync", s.requireAdmin(s.adminDeviceSync))
 	m.HandleFunc("GET /api/releases/{file}", s.handleReleaseDownload)
 	m.HandleFunc("GET /install", s.handleInstallScript)
 	m.HandleFunc("GET /install.ps1", s.handleInstallScript)

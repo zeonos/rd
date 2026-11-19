@@ -42,6 +42,7 @@ pub fn start() {
         super::fleet::cleanup_update();
         super::fleet::enable_rdp_session_picker();
         super::fleet::start_inventory();
+        super::fleet::start_sync();
     });
 }
 

@@ -1,0 +1,55 @@
+# Weekly dependency check of everything we ship. A red run means a published
+# advisory affects a dependency: GitHub emails the repository owner.
+name: Security audit
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * 1" # Mondays 05:17 UTC
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    env:
+      GOPROXY: direct
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  rust:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: [rendezvous, client]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: cargo audit
+        working-directory: ${{ matrix.dir }}
+        run: |
+          cargo install cargo-audit --locked
+          # Fails on vulnerabilities; unmaintained or yanked crates are only listed.
+          cargo audit
+
+  images:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Build the API image
+        run: docker build -t rd-api server
+      - name: Scan images (Trivy)
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+          trivy image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed rd-api
+          trivy image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed ghcr.io/zeonos/rd-hbbs:latest

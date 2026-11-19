@@ -73,6 +73,7 @@ type Device struct {
 	IP          string     // public address of the last heartbeat
 	Build       int        // RD build number the client reports; 0 = unknown
 	InventoryAt *time.Time // when the agent last sent its inventory
+	Disks       string     // JSON array from the last inventory: [{name,label,size,free}]
 }
 
 // Online reports whether the device sent a heartbeat recently.

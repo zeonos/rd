@@ -182,3 +182,9 @@ dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top
 details { margin-top: 14px; }
 details > summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
 input[type="file"] { padding: 6px 0; }
+
+.disks { display: flex; flex-direction: column; gap: 3px; min-width: 210px; }
+.disk { display: grid; grid-template-columns: 2.2em 70px auto; align-items: center; gap: 8px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.disk .dname { font-weight: 600; }
+.disk meter { width: 70px; height: 8px; }
+.disk.low .dval { color: var(--bad, #b42318); font-weight: 600; }

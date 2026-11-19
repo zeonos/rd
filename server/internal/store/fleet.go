@@ -18,7 +18,8 @@ type Release struct {
 // FleetStore is part of Store: device IP and inventory, releases.
 type FleetStore interface {
 	SetDeviceIP(ctx context.Context, id, ip string) error
-	SetDeviceInventory(ctx context.Context, id, inventory string, at time.Time) error
+	// disks is the inventory's disk list as JSON, kept for the device list.
+	SetDeviceInventory(ctx context.Context, id, inventory, disks string, at time.Time) error
 	GetDeviceInventory(ctx context.Context, id string) (string, error)
 
 	AddRelease(ctx context.Context, r *Release) error // ErrConflict if the build exists

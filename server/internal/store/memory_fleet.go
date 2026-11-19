@@ -29,7 +29,7 @@ func (m *Memory) SetDeviceIP(ctx context.Context, id, ip string) error {
 	return nil
 }
 
-func (m *Memory) SetDeviceInventory(ctx context.Context, id, inventory string, at time.Time) error {
+func (m *Memory) SetDeviceInventory(ctx context.Context, id, inventory, disks string, at time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	d, ok := m.devices[id]
@@ -38,6 +38,7 @@ func (m *Memory) SetDeviceInventory(ctx context.Context, id, inventory string, a
 	}
 	t := at
 	d.InventoryAt = &t
+	d.Disks = disks
 	m.f().inventory[id] = inventory
 	return nil
 }

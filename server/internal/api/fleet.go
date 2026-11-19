@@ -69,12 +69,23 @@ func (s *Server) handleAgentInventory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := s.now()
-	if err := s.store.SetDeviceInventory(r.Context(), dev.ID, req.Inventory, now); err != nil {
+	if err := s.store.SetDeviceInventory(r.Context(), dev.ID, req.Inventory, diskSummary(req.Inventory), now); err != nil {
 		s.internalError(w, err)
 		return
 	}
 	s.checkDisks(dev, req.Inventory, now)
 	writeJSON(w, http.StatusOK, map[string]any{})
+}
+
+// diskSummary is the inventory's disk list as compact JSON ("" if none).
+func diskSummary(inventory string) string {
+	var inv struct {
+		Disks json.RawMessage `json:"disks"`
+	}
+	if json.Unmarshal([]byte(inventory), &inv) != nil || len(inv.Disks) == 0 || inv.Disks[0] != '[' {
+		return ""
+	}
+	return string(inv.Disks)
 }
 
 // checkDisks alerts once a day per disk that has less free space than

@@ -25,9 +25,6 @@ jobs:
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U rd" --health-interval 5s --health-timeout 5s --health-retries 10
-    env:
-      # go.mod maps golang.org/x/* and gopkg.in/* to their GitHub mirrors, fetched directly.
-      GOPROXY: direct
     defaults:
       run:
         working-directory: server
@@ -35,12 +32,17 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-go@v5
         with:
-          go-version-file: server/go.mod
+          # Newest patch release: go.mod's go line is a minimum, and the
+          # standard library gets security fixes in patch releases.
+          go-version: "1.26.x"
+          check-latest: true
           cache-dependency-path: server/go.sum
       - run: go vet ./...
       - run: go test -race -count=1 ./...
         env:
           RD_TEST_DATABASE_URL: postgres://rd:rd@localhost:5432/rdtest?sslmode=disable
+      - name: Known vulnerabilities (govulncheck)
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
       - name: Docker build
         run: docker build -t rd-api .
 

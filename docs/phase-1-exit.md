@@ -5,7 +5,7 @@
 - [ ] 5 failed logins lock the login for 15 minutes
 - [ ] 5 Server 2022 machines at 2+ sites installed with `install.ps1`, no prompts
 - [ ] each appears in `rd-api device list` under its location, `UNATTENDED yes`, online within 1 minute
-- [ ] RD viewer address book shows them tagged by location; connecting needs no password
+- [ ] RD viewer home shows them under their location; connecting needs no password
 - [ ] no tray icon, no accept prompt and no connection window on the servers
 - [ ] reboot a server from the session toolbar; the viewer reconnects to its logon screen within 2 minutes
 - [ ] reinstall one server: it keeps its ID and works again after `install.ps1`

@@ -66,4 +66,8 @@ scripts/update-client.sh 1.5.4
 
 Re-vendors upstream into `client/`, commits it unmodified, then re-applies
 `patches/*.patch`. Resolve conflicts if any, build, test, commit, and refresh
-the patch file with `git diff <vendor-commit> -- client > patches/0001-rd-fork.patch`.
+the patch file with `git diff --binary <vendor-commit> -- client > patches/0001-rd-fork.patch`
+(binary: the patch carries the RD icons and fonts).
+
+The vendor commit adds every upstream file, including the `*png`/`*svg` that
+upstream's `.gitignore` hides; without them the toolbar icons are blank.

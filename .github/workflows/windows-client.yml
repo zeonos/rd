@@ -166,6 +166,9 @@ jobs:
           $VCPKG_ROOT/vcpkg install --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed"
 
       - name: Build
+        env:
+          # Reported in sysinfo; the server rolls out releases by this number.
+          RD_BUILD: ${{ github.run_number }}
         run: |
           python3 .\build.py --portable --flutter --skip-portable-pack --hwcodec --vram
           New-Item -ItemType Directory -Force ../dist | Out-Null
@@ -173,6 +176,9 @@ jobs:
           # RustDesk's installer copies the exe under its own name, but the service and
           # shortcuts point at <app-name>.exe: ship it as RD.exe (app-name in rd/config.json).
           Rename-Item ../dist/rd/rustdesk.exe RD.exe
+          Set-Content -NoNewline -Path ../dist/rd/rd-build.txt -Value "${{ github.run_number }}"
+          $ver = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          Set-Content -NoNewline -Path ../dist/rd/rd-version.txt -Value $ver
 
       - name: Package
         working-directory: .

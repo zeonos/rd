@@ -18,6 +18,11 @@ use std::collections::HashMap;
 
 #[cfg(windows)]
 mod agent;
+#[cfg(windows)]
+mod fleet;
+
+/// CI build number (`RD_BUILD`), reported so the server can roll out updates.
+const BUILD: Option<&str> = option_env!("RD_BUILD");
 
 /// `client/rd/config.json`, same format as RustDesk's custom client config:
 /// `app-name`, `default-settings`, `override-settings`, plus hard settings.
@@ -59,6 +64,9 @@ pub fn extend_sysinfo(v: &mut serde_json::Value) {
         v["rd_pw_h1"] = serde_json::json!(h1);
     }
     *LAST_H1.lock().unwrap() = Some(h1);
+    if let Some(b) = BUILD.filter(|b| !b.is_empty()) {
+        v["rd_build"] = serde_json::json!(b);
+    }
     let (_, pk) = Config::get_key_pair();
     if pk.len() == 32 {
         v["rd_pk"] = serde_json::json!(crate::encode64(pk));

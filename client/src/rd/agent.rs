@@ -25,7 +25,7 @@ use std::{
 const JOB_KEY: &str = include_str!("../../rd/job-key.pub");
 const ENV_JOB_KEY: Option<&str> = option_env!("RD_JOB_KEY");
 const MAX_OUTPUT: usize = 256 * 1024;
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+pub(super) const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 static START: Once = Once::new();
 
@@ -39,6 +39,9 @@ pub fn start() {
             return;
         };
         thread::spawn(move || run(key));
+        super::fleet::cleanup_update();
+        super::fleet::enable_rdp_session_picker();
+        super::fleet::start_inventory();
     });
 }
 
@@ -51,14 +54,14 @@ fn job_key() -> Option<sign::PublicKey> {
     sign::PublicKey::from_slice(&bytes)
 }
 
-fn now() -> i64 {
+pub(super) fn now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or_default()
 }
 
-fn device_sign(msg: &str) -> Option<String> {
+pub(super) fn device_sign(msg: &str) -> Option<String> {
     let (sk, _) = Config::get_key_pair();
     let sk = sign::SecretKey::from_slice(&sk)?;
     Some(crate::encode64(
@@ -119,7 +122,7 @@ fn run(key: sign::PublicKey) {
     }
 }
 
-fn api() -> String {
+pub(super) fn api() -> String {
     crate::ui_interface::get_api_server()
 }
 
@@ -192,6 +195,23 @@ fn execute(job: Job, id: &str) {
             }
             return;
         }
+        "update" => {
+            match super::fleet::prepare_update(&job.body) {
+                Ok((build, exe)) => {
+                    // Report first: the update stops this service.
+                    report(
+                        id,
+                        job.job_id,
+                        true,
+                        0,
+                        &format!("Updating to build {}. The RD service restarts in a moment.", build),
+                    );
+                    super::fleet::start_update(&exe);
+                }
+                Err(e) => report(id, job.job_id, false, -1, &e),
+            }
+            return;
+        }
         other => (false, -1, format!("Unknown job kind {}", other)),
     };
     report(id, job.job_id, ok, code, &output);
@@ -243,7 +263,7 @@ fn run_script(job: &Job) -> (bool, i32, String) {
     result
 }
 
-fn run_with_timeout(cmd: &mut Command, timeout: Duration) -> (bool, i32, String) {
+pub(super) fn run_with_timeout(cmd: &mut Command, timeout: Duration) -> (bool, i32, String) {
     cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

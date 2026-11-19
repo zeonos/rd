@@ -117,7 +117,8 @@ class _RdHomePageState extends State<RdHomePage> {
       return d.name.toLowerCase().contains(q) ||
           d.hostname.toLowerCase().contains(q) ||
           d.id.contains(qDigits) ||
-          d.username.toLowerCase().contains(q);
+          d.username.toLowerCase().contains(q) ||
+          d.ip.contains(q);
     }).toList());
   }
 
@@ -175,7 +176,7 @@ class _RdHomePageState extends State<RdHomePage> {
                   style: const TextStyle(color: Colors.white, fontSize: 15),
                   cursorColor: Colors.white,
                   decoration: InputDecoration(
-                    hintText: 'Search name, ID or user',
+                    hintText: 'Search name, ID, user or IP',
                     hintStyle: const TextStyle(color: Rd.onInkMuted),
                     prefixIcon: const Icon(Icons.search,
                         color: Rd.onInkMuted, size: 20),
@@ -586,6 +587,8 @@ class _RdHomePageState extends State<RdHomePage> {
                   _fact('System', d.os),
                   _fact('User', d.username),
                   _fact('Host name', d.hostname),
+                  _fact('Public IP', d.ip, mono: true),
+                  _fact('RD build', d.build > 0 ? '${d.build}' : ''),
                   _fact('Last seen', d.lastSeenText),
                 ],
               ),

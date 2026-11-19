@@ -9504,10 +9504,10 @@ index 0000000..6a2096d
 +}
 diff --git a/client/flutter/lib/rd/api.dart b/client/flutter/lib/rd/api.dart
 new file mode 100644
-index 0000000..531be39
+index 0000000..62360d8
 --- /dev/null
 +++ b/client/flutter/lib/rd/api.dart
-@@ -0,0 +1,180 @@
+@@ -0,0 +1,186 @@
 +// Client for the RD server's console API, used with the viewer's login token.
 +import 'dart:convert';
 +
@@ -9535,6 +9535,8 @@ index 0000000..531be39
 +  final bool online;
 +  final DateTime? lastSeen;
 +  final bool unattended;
++  final String ip;
++  final int build;
 +
 +  RdDevice({
 +    required this.id,
@@ -9546,6 +9548,8 @@ index 0000000..531be39
 +    required this.online,
 +    required this.lastSeen,
 +    required this.unattended,
++    this.ip = '',
++    this.build = 0,
 +  });
 +
 +  String get name => alias.isNotEmpty
@@ -9567,6 +9571,8 @@ index 0000000..531be39
 +            ? null
 +            : DateTime.tryParse(j['last_seen'].toString())?.toLocal(),
 +        unattended: j['unattended'] == true,
++        ip: (j['ip'] ?? '').toString(),
++        build: (j['build'] as num?)?.toInt() ?? 0,
 +      );
 +
 +  String get lastSeenText {
@@ -9690,10 +9696,10 @@ index 0000000..531be39
 +}
 diff --git a/client/flutter/lib/rd/home.dart b/client/flutter/lib/rd/home.dart
 new file mode 100644
-index 0000000..99a5963
+index 0000000..474e622
 --- /dev/null
 +++ b/client/flutter/lib/rd/home.dart
-@@ -0,0 +1,612 @@
+@@ -0,0 +1,615 @@
 +// Home screen: devices from the RD server, grouped by location.
 +import 'dart:async';
 +
@@ -9813,7 +9819,8 @@ index 0000000..99a5963
 +      return d.name.toLowerCase().contains(q) ||
 +          d.hostname.toLowerCase().contains(q) ||
 +          d.id.contains(qDigits) ||
-+          d.username.toLowerCase().contains(q);
++          d.username.toLowerCase().contains(q) ||
++          d.ip.contains(q);
 +    }).toList());
 +  }
 +
@@ -9871,7 +9878,7 @@ index 0000000..99a5963
 +                  style: const TextStyle(color: Colors.white, fontSize: 15),
 +                  cursorColor: Colors.white,
 +                  decoration: InputDecoration(
-+                    hintText: 'Search name, ID or user',
++                    hintText: 'Search name, ID, user or IP',
 +                    hintStyle: const TextStyle(color: Rd.onInkMuted),
 +                    prefixIcon: const Icon(Icons.search,
 +                        color: Rd.onInkMuted, size: 20),
@@ -10282,6 +10289,8 @@ index 0000000..99a5963
 +                  _fact('System', d.os),
 +                  _fact('User', d.username),
 +                  _fact('Host name', d.hostname),
++                  _fact('Public IP', d.ip, mono: true),
++                  _fact('RD build', d.build > 0 ? '${d.build}' : ''),
 +                  _fact('Last seen', d.lastSeenText),
 +                ],
 +              ),
@@ -13898,10 +13907,10 @@ index f6e48a1..2a72a6d 100644
  #[cfg(not(any(
 diff --git a/client/src/rd.rs b/client/src/rd.rs
 new file mode 100644
-index 0000000..c68b7af
+index 0000000..f88e96a
 --- /dev/null
 +++ b/client/src/rd.rs
-@@ -0,0 +1,103 @@
+@@ -0,0 +1,111 @@
 +//! RD fork additions to the RustDesk client.
 +//!
 +//! Upstream files only get one-line hooks marked `// RD:` that call into this
@@ -13922,6 +13931,11 @@ index 0000000..c68b7af
 +
 +#[cfg(windows)]
 +mod agent;
++#[cfg(windows)]
++mod fleet;
++
++/// CI build number (`RD_BUILD`), reported so the server can roll out updates.
++const BUILD: Option<&str> = option_env!("RD_BUILD");
 +
 +/// `client/rd/config.json`, same format as RustDesk's custom client config:
 +/// `app-name`, `default-settings`, `override-settings`, plus hard settings.
@@ -13963,6 +13977,9 @@ index 0000000..c68b7af
 +        v["rd_pw_h1"] = serde_json::json!(h1);
 +    }
 +    *LAST_H1.lock().unwrap() = Some(h1);
++    if let Some(b) = BUILD.filter(|b| !b.is_empty()) {
++        v["rd_build"] = serde_json::json!(b);
++    }
 +    let (_, pk) = Config::get_key_pair();
 +    if pk.len() == 32 {
 +        v["rd_pk"] = serde_json::json!(crate::encode64(pk));
@@ -14007,10 +14024,10 @@ index 0000000..c68b7af
 +}
 diff --git a/client/src/rd/agent.rs b/client/src/rd/agent.rs
 new file mode 100644
-index 0000000..f01719b
+index 0000000..2280e6d
 --- /dev/null
 +++ b/client/src/rd/agent.rs
-@@ -0,0 +1,437 @@
+@@ -0,0 +1,457 @@
 +//! RD job runner (Windows service only).
 +//!
 +//! Polls the RD API server for jobs, runs scripts and power actions, and
@@ -14038,7 +14055,7 @@ index 0000000..f01719b
 +const JOB_KEY: &str = include_str!("../../rd/job-key.pub");
 +const ENV_JOB_KEY: Option<&str> = option_env!("RD_JOB_KEY");
 +const MAX_OUTPUT: usize = 256 * 1024;
-+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
++pub(super) const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 +
 +static START: Once = Once::new();
 +
@@ -14052,6 +14069,9 @@ index 0000000..f01719b
 +            return;
 +        };
 +        thread::spawn(move || run(key));
++        super::fleet::cleanup_update();
++        super::fleet::enable_rdp_session_picker();
++        super::fleet::start_inventory();
 +    });
 +}
 +
@@ -14064,14 +14084,14 @@ index 0000000..f01719b
 +    sign::PublicKey::from_slice(&bytes)
 +}
 +
-+fn now() -> i64 {
++pub(super) fn now() -> i64 {
 +    SystemTime::now()
 +        .duration_since(UNIX_EPOCH)
 +        .map(|d| d.as_secs() as i64)
 +        .unwrap_or_default()
 +}
 +
-+fn device_sign(msg: &str) -> Option<String> {
++pub(super) fn device_sign(msg: &str) -> Option<String> {
 +    let (sk, _) = Config::get_key_pair();
 +    let sk = sign::SecretKey::from_slice(&sk)?;
 +    Some(crate::encode64(
@@ -14132,7 +14152,7 @@ index 0000000..f01719b
 +    }
 +}
 +
-+fn api() -> String {
++pub(super) fn api() -> String {
 +    crate::ui_interface::get_api_server()
 +}
 +
@@ -14205,6 +14225,23 @@ index 0000000..f01719b
 +            }
 +            return;
 +        }
++        "update" => {
++            match super::fleet::prepare_update(&job.body) {
++                Ok((build, exe)) => {
++                    // Report first: the update stops this service.
++                    report(
++                        id,
++                        job.job_id,
++                        true,
++                        0,
++                        &format!("Updating to build {}. The RD service restarts in a moment.", build),
++                    );
++                    super::fleet::start_update(&exe);
++                }
++                Err(e) => report(id, job.job_id, false, -1, &e),
++            }
++            return;
++        }
 +        other => (false, -1, format!("Unknown job kind {}", other)),
 +    };
 +    report(id, job.job_id, ok, code, &output);
@@ -14256,7 +14293,7 @@ index 0000000..f01719b
 +    result
 +}
 +
-+fn run_with_timeout(cmd: &mut Command, timeout: Duration) -> (bool, i32, String) {
++pub(super) fn run_with_timeout(cmd: &mut Command, timeout: Duration) -> (bool, i32, String) {
 +    cmd.stdin(Stdio::null())
 +        .stdout(Stdio::piped())
 +        .stderr(Stdio::piped())
@@ -14448,6 +14485,283 @@ index 0000000..f01719b
 +        log::error!("RD agent: {} failed to start: {}", action, e);
 +    }
 +}
+diff --git a/client/src/rd/fleet.rs b/client/src/rd/fleet.rs
+new file mode 100644
+index 0000000..700013d
+--- /dev/null
++++ b/client/src/rd/fleet.rs
+@@ -0,0 +1,220 @@
++//! Inventory reports and self-update (Windows service only).
++//!
++//! - Inventory: `inventory.ps1` a few minutes after start and every 6 hours,
++//!   posted to `/api/agent/inventory` signed with the device key.
++//! - Update: an "update" job (signed by the server's job key, see agent.rs)
++//!   names a release zip and its SHA-256. The zip is downloaded, checked,
++//!   unpacked, and `RD.exe --update` from it is started through Task
++//!   Scheduler, because that command stops this service.
++//!
++//! The protocol matches `server/internal/api/fleet.go`.
++
++use super::agent::{api, device_sign, now, run_with_timeout, CREATE_NO_WINDOW};
++use hbb_common::{config::Config, log};
++use serde::Deserialize;
++use sha2::{Digest, Sha256};
++use std::{
++    os::windows::process::CommandExt,
++    path::{Path, PathBuf},
++    process::Command,
++    thread,
++    time::Duration,
++};
++
++const INVENTORY_SCRIPT: &str = include_str!("inventory.ps1");
++const INVENTORY_FIRST: Duration = Duration::from_secs(180);
++const INVENTORY_EVERY: Duration = Duration::from_secs(6 * 3600);
++const TASK_NAME: &str = "RD-Update";
++
++pub fn start_inventory() {
++    thread::spawn(|| {
++        thread::sleep(INVENTORY_FIRST);
++        loop {
++            if let Err(e) = send_inventory() {
++                log::warn!("RD agent: inventory not sent: {}", e);
++            }
++            thread::sleep(INVENTORY_EVERY);
++        }
++    });
++}
++
++fn hex(b: &[u8]) -> String {
++    b.iter().map(|x| format!("{:02x}", x)).collect()
++}
++
++fn powershell(script: &str, timeout: Duration) -> (bool, i32, String) {
++    let mut cmd = Command::new("powershell.exe");
++    cmd.args([
++        "-NoLogo",
++        "-NoProfile",
++        "-NonInteractive",
++        "-ExecutionPolicy",
++        "Bypass",
++        "-Command",
++        script,
++    ]);
++    run_with_timeout(&mut cmd, timeout)
++}
++
++fn send_inventory() -> Result<(), String> {
++    let url = api();
++    if url.is_empty() {
++        return Ok(());
++    }
++    let (ok, code, out) = powershell(INVENTORY_SCRIPT, Duration::from_secs(300));
++    if !ok {
++        return Err(format!("inventory script exited with {}", code));
++    }
++    let inventory = out.trim().to_owned();
++    serde_json::from_str::<serde_json::Value>(&inventory)
++        .map_err(|e| format!("inventory is not JSON: {}", e))?;
++    let id = Config::get_id();
++    let ts = now().to_string();
++    let msg = format!(
++        "rd-inventory\n{}\n{}\n{}",
++        id,
++        hex(&Sha256::digest(inventory.as_bytes())),
++        ts
++    );
++    let sig = device_sign(&msg).ok_or("no device key")?;
++    let body = serde_json::json!({ "id": id, "ts": ts, "inventory": inventory, "sig": sig })
++        .to_string();
++    crate::post_request_sync(format!("{}/api/agent/inventory", url), body, "")
++        .map(|_| ())
++        .map_err(|e| e.to_string())
++}
++
++#[derive(Deserialize)]
++struct UpdateBody {
++    build: i64,
++    path: String,
++    sha256: String,
++}
++
++fn update_dir() -> PathBuf {
++    let base = std::env::var("ProgramData").unwrap_or_else(|_| "C:\\ProgramData".to_owned());
++    PathBuf::from(base).join("RD").join("update")
++}
++
++fn ps_quote(p: &Path) -> String {
++    format!("'{}'", p.display().to_string().replace('\'', "''"))
++}
++
++fn file_sha256(path: &Path) -> Result<String, String> {
++    let mut f = std::fs::File::open(path).map_err(|e| e.to_string())?;
++    let mut h = Sha256::new();
++    std::io::copy(&mut f, &mut h).map_err(|e| e.to_string())?;
++    Ok(hex(&h.finalize()))
++}
++
++/// Downloads, checks and unpacks the release; returns RD.exe of the new build.
++pub fn prepare_update(body: &str) -> Result<(i64, PathBuf), String> {
++    let u: UpdateBody = serde_json::from_str(body).map_err(|e| format!("bad update job: {}", e))?;
++    if !u.path.starts_with("/api/releases/") || u.sha256.len() != 64 {
++        return Err("bad update job".into());
++    }
++    let dir = update_dir();
++    std::fs::remove_dir_all(&dir).ok();
++    std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {}", dir.display(), e))?;
++    let zip = dir.join(format!("rd-{}.zip", u.build));
++    let unpacked = dir.join(format!("rd-{}", u.build));
++    let url = format!("{}{}", api(), u.path).replace('\'', "''");
++    let (ok, _, out) = powershell(
++        &format!(
++            "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue'; \
++             [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; \
++             Invoke-WebRequest -UseBasicParsing -Uri '{}' -OutFile {}",
++            url,
++            ps_quote(&zip)
++        ),
++        Duration::from_secs(600),
++    );
++    if !ok {
++        return Err(format!("download failed: {}", out.trim()));
++    }
++    let got = file_sha256(&zip)?;
++    if !got.eq_ignore_ascii_case(&u.sha256) {
++        std::fs::remove_file(&zip).ok();
++        return Err(format!(
++            "download does not match the signed SHA-256 ({} instead of {})",
++            got, u.sha256
++        ));
++    }
++    let (ok, _, out) = powershell(
++        &format!(
++            "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue'; \
++             Expand-Archive -LiteralPath {} -DestinationPath {} -Force",
++            ps_quote(&zip),
++            ps_quote(&unpacked)
++        ),
++        Duration::from_secs(300),
++    );
++    if !ok {
++        return Err(format!("unpacking failed: {}", out.trim()));
++    }
++    let exe = find_exe(&unpacked).ok_or("the release has no RD.exe")?;
++    Ok((u.build, exe))
++}
++
++fn find_exe(dir: &Path) -> Option<PathBuf> {
++    for entry in std::fs::read_dir(dir).ok()?.flatten() {
++        let p = entry.path();
++        if p.is_dir() {
++            if let Some(f) = find_exe(&p) {
++                return Some(f);
++            }
++        } else if p
++            .file_name()
++            .map(|n| n.eq_ignore_ascii_case("RD.exe"))
++            .unwrap_or(false)
++        {
++            return Some(p);
++        }
++    }
++    None
++}
++
++/// Runs `RD.exe --update` from the new build outside this service's process
++/// tree: it stops the service, copies itself over the install and restarts it.
++pub fn start_update(exe: &Path) {
++    let tr = format!("\"{}\" --update", exe.display());
++    let create = Command::new("schtasks.exe")
++        .args([
++            "/Create", "/F", "/TN", TASK_NAME, "/RU", "SYSTEM", "/RL", "HIGHEST", "/SC", "ONCE",
++            "/ST", "00:00", "/TR",
++        ])
++        .arg(&tr)
++        .creation_flags(CREATE_NO_WINDOW)
++        .status();
++    if !matches!(create, Ok(s) if s.success()) {
++        log::error!("RD agent: cannot create the update task: {:?}", create);
++        return;
++    }
++    if let Err(e) = Command::new("schtasks.exe")
++        .args(["/Run", "/TN", TASK_NAME])
++        .creation_flags(CREATE_NO_WINDOW)
++        .status()
++    {
++        log::error!("RD agent: cannot start the update task: {}", e);
++    }
++}
++
++/// After an update the service runs again: remove the one-shot task and files.
++pub fn cleanup_update() {
++    Command::new("schtasks.exe")
++        .args(["/Delete", "/F", "/TN", TASK_NAME])
++        .creation_flags(CREATE_NO_WINDOW)
++        .stdout(std::process::Stdio::null())
++        .stderr(std::process::Stdio::null())
++        .status()
++        .ok();
++    std::fs::remove_dir_all(update_dir()).ok();
++}
++
++/// The RDP session picker in sessions needs RustDesk's "share RDP" setting.
++pub fn enable_rdp_session_picker() {
++    if !crate::platform::is_share_rdp() {
++        crate::platform::set_share_rdp(true);
++        log::info!("RD agent: enabled RDP session sharing (session picker)");
++    }
++}
+diff --git a/client/src/rd/inventory.ps1 b/client/src/rd/inventory.ps1
+new file mode 100644
+index 0000000..9d87d3e
+--- /dev/null
++++ b/client/src/rd/inventory.ps1
+@@ -0,0 +1,45 @@
++[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
++$ErrorActionPreference = 'SilentlyContinue'
++$ProgressPreference = 'SilentlyContinue'
++
++$cs = Get-CimInstance Win32_ComputerSystem
++$bios = Get-CimInstance Win32_BIOS
++$os = Get-CimInstance Win32_OperatingSystem
++$ubr = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion').UBR
++
++$disks = @(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' | ForEach-Object {
++    [ordered]@{ name = $_.DeviceID; label = [string]$_.VolumeName; size = [int64]$_.Size; free = [int64]$_.FreeSpace }
++})
++
++$keys = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
++        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
++$software = @(Get-ItemProperty $keys |
++    Where-Object { $_.DisplayName -and -not $_.SystemComponent -and -not $_.ParentKeyName } |
++    ForEach-Object { [pscustomobject]@{ name = [string]$_.DisplayName; version = [string]$_.DisplayVersion; publisher = [string]$_.Publisher } } |
++    Sort-Object name, version -Unique)
++
++# Offline search: uses the result of Windows Update's last scan, no network.
++$pending = -1
++try {
++    $searcher = (New-Object -ComObject Microsoft.Update.Session).CreateUpdateSearcher()
++    $searcher.Online = $false
++    $pending = $searcher.Search('IsInstalled=0 and IsHidden=0').Updates.Count
++} catch {}
++
++$rebootPending = (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') -or
++    (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') -or
++    [bool](Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager').PendingFileRenameOperations
++
++[ordered]@{
++    manufacturer    = [string]$cs.Manufacturer
++    model           = [string]$cs.Model
++    serial          = [string]$bios.SerialNumber
++    memory          = [int64]$cs.TotalPhysicalMemory
++    os_caption      = [string]$os.Caption
++    os_build        = if ($ubr) { "$($os.BuildNumber).$ubr" } else { [string]$os.BuildNumber }
++    boot_time       = if ($os.LastBootUpTime) { $os.LastBootUpTime.ToUniversalTime().ToString('o') } else { '' }
++    pending_updates = $pending
++    reboot_pending  = $rebootPending
++    disks           = $disks
++    software        = $software
++} | ConvertTo-Json -Depth 4 -Compress
 diff --git a/client/src/rendezvous_mediator.rs b/client/src/rendezvous_mediator.rs
 index 7e7ea5f..e62da49 100644
 --- a/client/src/rendezvous_mediator.rs

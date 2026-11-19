@@ -25,6 +25,8 @@ class RdDevice {
   final bool online;
   final DateTime? lastSeen;
   final bool unattended;
+  final String ip;
+  final int build;
 
   RdDevice({
     required this.id,
@@ -36,6 +38,8 @@ class RdDevice {
     required this.online,
     required this.lastSeen,
     required this.unattended,
+    this.ip = '',
+    this.build = 0,
   });
 
   String get name => alias.isNotEmpty
@@ -57,6 +61,8 @@ class RdDevice {
             ? null
             : DateTime.tryParse(j['last_seen'].toString())?.toLocal(),
         unattended: j['unattended'] == true,
+        ip: (j['ip'] ?? '').toString(),
+        build: (j['build'] as num?)?.toInt() ?? 0,
       );
 
   String get lastSeenText {

@@ -247,8 +247,8 @@ class _RdSignInPageState extends State<RdSignInPage> {
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Container(
-          width: 400,
-          padding: const EdgeInsets.fromLTRB(36, 40, 36, 36),
+          constraints: const BoxConstraints(maxWidth: 400),
+          padding: const EdgeInsets.fromLTRB(28, 36, 28, 32),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(14),

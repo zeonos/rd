@@ -8,6 +8,7 @@ import '../../common/widgets/chat_page.dart';
 import '../../models/platform_model.dart';
 import '../../models/state_model.dart';
 import 'connection_page.dart';
+import '../../rd/mobile.dart';
 
 abstract class PageShape extends Widget {
   final String title = "";
@@ -61,6 +62,7 @@ class HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+    if (!bind.isIncomingOnly()) return const RdMobileShell();
     return WillPopScope(
         onWillPop: () async {
           if (_selectedIndex != 0) {

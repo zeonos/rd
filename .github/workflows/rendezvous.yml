@@ -29,7 +29,7 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: rendezvous
-      - run: cargo test --locked --lib ws_peers
+      - run: cargo test --locked --lib -- ws_peers kx_tests
       - run: cargo build --locked --release --bin hbbs --bin hbbr
 
   image:

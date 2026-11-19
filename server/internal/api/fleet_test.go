@@ -133,7 +133,8 @@ func TestInventoryAndDiskAlert(t *testing.T) {
 		t.Fatalf("stored inventory: %s", body)
 	}
 	_, body = e.do("GET", "/api/admin/devices", tok, nil)
-	if !strings.Contains(body, `"inventory_at"`) || !strings.Contains(body, `"ip":`) {
+	if !strings.Contains(body, `"inventory_at"`) || !strings.Contains(body, `"ip":`) ||
+		!strings.Contains(body, `"disks":[{"name":"C:","size":100000000000,"free":5000000000},{"name":"D:","size":100,"free":50}]`) {
 		t.Fatalf("device list: %s", body)
 	}
 

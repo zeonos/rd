@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -13,35 +14,40 @@ import (
 )
 
 type deviceJSON struct {
-	ID          string     `json:"id"`
-	Alias       string     `json:"alias"`
-	Hostname    string     `json:"hostname"`
-	Username    string     `json:"username"`
-	OS          string     `json:"os"`
-	CPU         string     `json:"cpu"`
-	Memory      string     `json:"memory"`
-	Version     string     `json:"version"`
-	Note        string     `json:"note"`
-	GroupID     *int64     `json:"group_id"`
-	Group       string     `json:"group"`
-	Online      bool       `json:"online"`
-	Conns       int        `json:"conns"`
-	LastSeen    *time.Time `json:"last_seen"`
-	Unattended  bool       `json:"unattended"` // h1 reported: viewer can connect without a password
-	CreatedAt   time.Time  `json:"created_at"`
-	IP          string     `json:"ip"`
-	Build       int        `json:"build"`
-	InventoryAt *time.Time `json:"inventory_at"`
+	ID          string          `json:"id"`
+	Alias       string          `json:"alias"`
+	Hostname    string          `json:"hostname"`
+	Username    string          `json:"username"`
+	OS          string          `json:"os"`
+	CPU         string          `json:"cpu"`
+	Memory      string          `json:"memory"`
+	Version     string          `json:"version"`
+	Note        string          `json:"note"`
+	GroupID     *int64          `json:"group_id"`
+	Group       string          `json:"group"`
+	Online      bool            `json:"online"`
+	Conns       int             `json:"conns"`
+	LastSeen    *time.Time      `json:"last_seen"`
+	Unattended  bool            `json:"unattended"` // h1 reported: viewer can connect without a password
+	CreatedAt   time.Time       `json:"created_at"`
+	IP          string          `json:"ip"`
+	Build       int             `json:"build"`
+	InventoryAt *time.Time      `json:"inventory_at"`
+	Disks       json.RawMessage `json:"disks,omitempty"` // [{name,label,size,free}] from the last inventory
 }
 
 func (s *Server) toDeviceJSON(d *store.Device) deviceJSON {
-	return deviceJSON{
+	j := deviceJSON{
 		ID: d.ID, Alias: d.Alias, Hostname: d.Hostname, Username: d.Username, OS: d.OS, CPU: d.CPU,
 		Memory: d.Memory, Version: d.Version, Note: d.Note, GroupID: d.GroupID, Group: groupName(d),
 		Online: d.Online(s.now()), Conns: d.Conns, LastSeen: d.LastSeen,
 		Unattended: d.PasswordH1 != "", CreatedAt: d.CreatedAt,
 		IP: d.IP, Build: d.Build, InventoryAt: d.InventoryAt,
 	}
+	if d.Disks != "" {
+		j.Disks = json.RawMessage(d.Disks)
+	}
+	return j
 }
 
 func (s *Server) adminListDevices(w http.ResponseWriter, r *http.Request) {

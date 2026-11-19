@@ -32,11 +32,11 @@ func TestFleet(t *testing.T) {
 			if err := s.UpdateSysinfo(ctx, "f1", SysinfoUpdate{Hostname: "H"}); err != nil { // 0 keeps the build
 				t.Fatal(err)
 			}
-			if err := s.SetDeviceInventory(ctx, "f1", `{"disks":[]}`, now); err != nil {
+			if err := s.SetDeviceInventory(ctx, "f1", `{"disks":[]}`, `[]`, now); err != nil {
 				t.Fatal(err)
 			}
 			d, err := s.GetDevice(ctx, "f1")
-			if err != nil || d.IP != "203.0.113.9" || d.Build != 12 || d.InventoryAt == nil || !d.InventoryAt.Equal(now) {
+			if err != nil || d.IP != "203.0.113.9" || d.Build != 12 || d.InventoryAt == nil || !d.InventoryAt.Equal(now) || d.Disks != `[]` {
 				t.Fatalf("device: %+v %v", d, err)
 			}
 			if inv, err := s.GetDeviceInventory(ctx, "f1"); err != nil || inv != `{"disks":[]}` {

@@ -245,6 +245,7 @@ function devicesView(selectedId) {
   h("td", { class: "nowrap" }, h("strong", {}, deviceName(d)), d.alias && d.hostname ? h("div", { class: "muted" }, d.hostname) : null),
   h("td", { class: "nowrap" }, d.id),
   h("td", { class: "nowrap" }, d.group),
+  h("td", {}, storageCell(d)),
   h("td", { class: "opt" }, d.os || h("span", { class: "muted" }, "Not reported")),
   h("td", { class: "opt" }, d.username || ""),
   h("td", { class: "opt nowrap" }, d.online ? (d.conns ? `${d.conns} session${d.conns > 1 ? "s" : ""}` : "") : ago(d.last_seen)),
@@ -252,8 +253,8 @@ function devicesView(selectedId) {
 
   const table = h("div", { class: "table-wrap" + (selectedId ? " compact" : "") }, h("table", {},
     h("thead", {}, h("tr", {}, h("th", {}, allBox), h("th", {}, "Status"), h("th", {}, "Name"), h("th", {}, "ID"),
-      h("th", {}, "Location"), h("th", { class: "opt" }, "OS"), h("th", { class: "opt" }, "User"), h("th", { class: "opt" }, "Activity"), h("th", {}, ""))),
-    h("tbody", {}, rows.length ? rows : h("tr", {}, h("td", { colspan: 9, class: "empty" },
+      h("th", {}, "Location"), h("th", {}, "Storage (free / total)"), h("th", { class: "opt" }, "OS"), h("th", { class: "opt" }, "User"), h("th", { class: "opt" }, "Activity"), h("th", {}, ""))),
+    h("tbody", {}, rows.length ? rows : h("tr", {}, h("td", { colspan: 10, class: "empty" },
       S.devices.length ? "No devices match." : "No devices yet. Create an enrolment token and install the client.")))));
 
   const actions = sel.length ? [
@@ -331,6 +332,19 @@ function deviceDetail(d) {
     .catch((e) => inv.replaceChildren(h("p", { class: "error" }, e.message)));
   panel.append(info, edit, inv, pol);
   return panel;
+}
+
+// Fixed disks from the last inventory: name, bar of used space, free / total.
+function storageCell(d) {
+  if (!d.disks || !d.disks.length) return h("span", { class: "muted" }, d.online ? "Waiting for inventory" : "");
+  const num = (n) => (n / 1e9).toFixed(n >= 1e11 ? 0 : 1);
+  return h("div", { class: "disks" }, d.disks.map((k) => {
+    const pct = k.size ? Math.round(k.free * 100 / k.size) : 0;
+    return h("div", { class: "disk" + (pct < 10 ? " low" : ""), title: `${[k.name, k.label].filter(Boolean).join(" ")}: ${gb(k.free)} free of ${gb(k.size)} (${pct}% free)` },
+      h("span", { class: "dname" }, k.name),
+      h("meter", { min: 0, max: k.size || 1, value: k.size - k.free, low: (k.size || 1) * 0.75, high: (k.size || 1) * 0.9, optimum: 0, "aria-label": `${k.name} used` }),
+      h("span", { class: "dval" }, `${num(k.free)} / ${gb(k.size)}`));
+  }));
 }
 
 function gb(n) { return n ? (n / 1e9).toFixed(n >= 1e11 ? 0 : 1) + " GB" : "-"; }

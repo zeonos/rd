@@ -176,3 +176,24 @@ func TestBrowserViewerServed(t *testing.T) {
 		t.Fatalf("/web should redirect, got %d", code)
 	}
 }
+
+func TestInstallScript(t *testing.T) {
+	e := newEnv(t)
+	e.srv.cfg.DataDir = t.TempDir()
+	tok := e.login()
+	if _, body := e.do("GET", "/install?token=rde_abc", "", nil); !strings.Contains(body, "No RD client build") {
+		t.Fatalf("no release: %s", body)
+	}
+	zipBytes := releaseZip(t, "21", true)
+	e.upload(tok, zipBytes)
+	sum := sha256.Sum256(zipBytes)
+	code, body := e.do("GET", "/install?token=rde_abc&group=It's/Room&ws=1", "", nil)
+	if code != 200 || !strings.Contains(body, "/api/releases/21.zip") || !strings.Contains(body, strings.ToUpper(hex.EncodeToString(sum[:]))) ||
+		!strings.Contains(body, "[string]$Token = 'rde_abc'") || !strings.Contains(body, "[string]$Group = 'It''s/Room'") ||
+		!strings.Contains(body, "[switch]$WebSocket = $true") {
+		t.Fatalf("script: %d\n%s", code, body)
+	}
+	if code, _ := e.do("GET", "/install?token=x%27%2Bcalc%2B%27", "", nil); code != 400 {
+		t.Fatal("token with quotes accepted")
+	}
+}

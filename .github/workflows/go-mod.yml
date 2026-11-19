@@ -1,0 +1,40 @@
+# When a branch changes server/go.mod, bring go.sum (and the module graph) in
+# line with it and commit the result to the branch: `go mod tidy`, plus the
+# newest golang.org/x/crypto. Pushes made here do not start other workflows,
+# so push any commit (or re-run the API server workflow) afterwards.
+name: Go modules
+
+on:
+  push:
+    branches-ignore: [main]
+    paths: ["server/go.mod"]
+
+permissions:
+  contents: write
+
+jobs:
+  tidy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.ref }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          check-latest: true
+      - run: |
+          go get golang.org/x/crypto@latest
+          go mod tidy
+          go build ./...
+      - name: Commit
+        run: |
+          if git diff --quiet -- go.mod go.sum; then echo "go.mod and go.sum already tidy"; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add go.mod go.sum
+          git commit -m "server: go mod tidy"
+          git push

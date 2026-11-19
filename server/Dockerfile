@@ -1,7 +1,5 @@
-FROM golang:1.24-alpine AS build
+FROM golang:1.26-alpine AS build
 RUN apk add --no-cache git
-# go.mod maps golang.org/x/* and gopkg.in/* to their GitHub mirrors; fetch directly.
-ENV GOPROXY=direct
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download

@@ -145,6 +145,8 @@ func (s *Server) routes() {
 	// Fleet: inventory, releases and auto-update (fleet.go)
 	m.HandleFunc("POST /api/agent/inventory", s.handleAgentInventory)
 	m.HandleFunc("GET /api/releases/{file}", s.handleReleaseDownload)
+	m.HandleFunc("GET /install", s.handleInstallScript)
+	m.HandleFunc("GET /install.ps1", s.handleInstallScript)
 	m.HandleFunc("GET /api/admin/devices/{id}/inventory", s.requireAdmin(s.adminDeviceInventory))
 	m.HandleFunc("GET /api/admin/releases", s.requireAdmin(s.adminListReleases))
 	m.HandleFunc("POST /api/admin/releases", s.requireAdmin(s.adminUploadRelease))

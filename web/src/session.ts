@@ -8,6 +8,7 @@
 // address book: sha256(h1 || challenge).
 
 import nacl from "../vendor/nacl-fast.js";
+import { decompress } from "../vendor/fzstd";
 import { decode, encode, enums, Msg } from "./pb";
 
 export const MOUSE_MOVE = 0;
@@ -33,6 +34,7 @@ export interface SessionEvents {
   frame(frame: VideoFrame): void;
   pickSession(sessions: { sid: number; name: string }[]): Promise<number>;
   closed(reason: string): void;
+  clipboard(text: string): void; // the device's clipboard changed (text only)
 }
 
 export interface SessionOptions {
@@ -293,6 +295,15 @@ export class Session {
         this.ev.display(this.current, d);
       }
       if (mi.close_reason) this.close(mi.close_reason);
+    } else if (m.clipboard || m.multi_clipboards) {
+      const list: Msg[] = m.clipboard ? [m.clipboard] : m.multi_clipboards.clipboards || [];
+      const text = list.find((c) => (c.format ?? 0) === enums.ClipboardFormat.Text);
+      if (text && text.content) {
+        try {
+          const bytes: Uint8Array = text.compress ? decompress(text.content) : text.content;
+          this.ev.clipboard(new TextDecoder().decode(bytes));
+        } catch {} // a clipboard we cannot read is not worth ending the session for
+      }
     } else if (m.message_box) {
       const mb = m.message_box;
       if (/error/.test(mb.msgtype || "")) this.ev.status(`${mb.title || ""}: ${mb.text || ""}`);
@@ -377,6 +388,11 @@ export class Session {
 
   setQuality(q: number) {
     this.send({ misc: { option: { image_quality: q } } });
+  }
+
+  // Sets the device's clipboard. Sent uncompressed; the device accepts both.
+  sendClipboard(text: string) {
+    this.send({ clipboard: { compress: false, content: te.encode(text), format: enums.ClipboardFormat.Text } });
   }
 
   sendText(text: string) {

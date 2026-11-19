@@ -89,6 +89,7 @@ services:
       RD_TRUSTED_PROXY: "1"
       RD_DATA_DIR: /data
       RD_ALERT_DISK_PERCENT: ${ALERT_DISK_PERCENT:-10}
+      RD_ALERT_SYNC_MINUTES: ${ALERT_SYNC_MINUTES:-240}
     volumes:
       - rd_data:/data
     depends_on:

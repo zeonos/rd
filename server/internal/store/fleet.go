@@ -21,6 +21,8 @@ type FleetStore interface {
 	// disks is the inventory's disk list as JSON, kept for the device list.
 	SetDeviceInventory(ctx context.Context, id, inventory, disks string, at time.Time) error
 	GetDeviceInventory(ctx context.Context, id string) (string, error)
+	// SetDeviceSync stores the agent's Syncthing report.
+	SetDeviceSync(ctx context.Context, id, report string, at time.Time) error
 
 	AddRelease(ctx context.Context, r *Release) error // ErrConflict if the build exists
 	ListReleases(ctx context.Context) ([]Release, error)

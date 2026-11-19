@@ -74,6 +74,8 @@ type Device struct {
 	Build       int        // RD build number the client reports; 0 = unknown
 	InventoryAt *time.Time // when the agent last sent its inventory
 	Disks       string     // JSON array from the last inventory: [{name,label,size,free}]
+	Sync        string     // JSON Syncthing report from the agent; "" = none yet
+	SyncAt      *time.Time // when it was reported
 }
 
 // Online reports whether the device sent a heartbeat recently.
@@ -115,6 +117,7 @@ type SysinfoUpdate struct {
 type Store interface {
 	JobStore
 	FleetStore
+	LibraryStore
 	Close()
 
 	// Users

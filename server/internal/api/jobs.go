@@ -163,7 +163,11 @@ func (s *Server) handleAgentPoll(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]signedJob, 0, len(jobs))
 	for _, j := range jobs {
-		p := JobPayload{JobID: j.ID, DeviceID: dev.ID, Kind: j.Kind, Shell: j.Shell, Body: j.Body, RunAs: j.RunAs,
+		body := j.Body
+		if j.Kind == "script" {
+			body = Prelude(j.Shell, j.Vars) + body
+		}
+		p := JobPayload{JobID: j.ID, DeviceID: dev.ID, Kind: j.Kind, Shell: j.Shell, Body: body, RunAs: j.RunAs,
 			TimeoutSec: j.TimeoutSec, Action: j.Action, IssuedAt: now.Unix(), ExpiresAt: j.Deadline.Unix()}
 		b, _ := json.Marshal(p)
 		out = append(out, signedJob{Payload: string(b), Sig: base64.StdEncoding.EncodeToString(ed25519.Sign(key, b))})
@@ -280,7 +284,10 @@ func validateScript(sc *store.Script) error {
 	if sc.TimeoutSec < 1 || sc.TimeoutSec > 86400 {
 		return errors.New("timeout_sec must be 1-86400")
 	}
-	return nil
+	if len(sc.Description) > 1000 {
+		return errors.New("description is longer than 1000 characters")
+	}
+	return validateParams(sc)
 }
 
 func (s *Server) adminListScripts(w http.ResponseWriter, r *http.Request) {
@@ -360,9 +367,16 @@ type createJobRequest struct {
 	Groups  []int64  `json:"groups"`
 	All     bool     `json:"all"`
 
+	// Vars override device and location values for every device.
+	Vars store.Vars `json:"vars"`
+
 	StartInMinutes int `json:"start_in_minutes"` // 0 = now
 	DeadlineHours  int `json:"deadline_hours"`   // default 24: offline devices run it when they return
 }
+
+type notFoundTarget struct{ msg string }
+
+func (e notFoundTarget) Error() string { return e.msg }
 
 func (s *Server) resolveTargets(ctx context.Context, req *createJobRequest) ([]string, string, error) {
 	devices, err := s.store.ListDevices(ctx)
@@ -390,7 +404,7 @@ func (s *Server) resolveTargets(ctx context.Context, req *createJobRequest) ([]s
 		for _, gid := range req.Groups {
 			g, ok := byID[gid]
 			if !ok {
-				return nil, "", fmt.Errorf("group %d not found", gid)
+				return nil, "", notFoundTarget{fmt.Sprintf("Location %d not found", gid)}
 			}
 			parts = append(parts, g.Path)
 			for _, x := range groups {
@@ -421,7 +435,7 @@ func (s *Server) resolveTargets(ctx context.Context, req *createJobRequest) ([]s
 		for _, id := range req.Devices {
 			n, ok := known[id]
 			if !ok {
-				return nil, "", fmt.Errorf("device %s not found", id)
+				return nil, "", notFoundTarget{fmt.Sprintf("Device %s not found", id)}
 			}
 			selected[id] = true
 			names = append(names, n)
@@ -440,51 +454,67 @@ func (s *Server) resolveTargets(ctx context.Context, req *createJobRequest) ([]s
 	return ids, strings.Join(parts, " + "), nil
 }
 
-func (s *Server) adminCreateJob(w http.ResponseWriter, r *http.Request) {
-	var req createJobRequest
-	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "Bad request")
-		return
-	}
-	j := &store.Job{CreatedBy: userFrom(r).Name}
+// userError is a job request problem to show to the admin.
+type userError struct{ msg string }
+
+func (e userError) Error() string { return e.msg }
+
+// jobPlan is a job ready to be stored, with the devices it runs on.
+type jobPlan struct {
+	job     *store.Job
+	devices []string
+	params  []store.ScriptParam
+	// missing lists, per device, required variables without a value.
+	missing map[string][]string
+	vc      *varContext
+}
+
+// planJob turns a request into a job. Variables are resolved per device.
+func (s *Server) planJob(ctx context.Context, req *createJobRequest, by string) (*jobPlan, error) {
+	j := &store.Job{CreatedBy: by}
+	var params []store.ScriptParam
 	switch {
 	case req.Action != "":
 		label, ok := powerActions[req.Action]
 		if !ok {
-			writeError(w, http.StatusBadRequest, "action must be reboot, reboot-safe-mode, shutdown or logoff")
-			return
+			return nil, userError{"action must be reboot, reboot-safe-mode, shutdown or logoff"}
 		}
 		j.Kind, j.Name, j.Action, j.RunAs, j.TimeoutSec = "power", label, req.Action, "system", 60
 	case req.ScriptID != 0:
-		sc, err := s.store.GetScript(r.Context(), req.ScriptID)
+		sc, err := s.store.GetScript(ctx, req.ScriptID)
 		if err != nil {
-			writeError(w, http.StatusNotFound, "Script not found")
-			return
+			return nil, userError{"Script not found"}
 		}
-		j.Kind, j.Name, j.Shell, j.Body, j.RunAs, j.TimeoutSec = "script", sc.Name, sc.Shell, sc.Body, sc.RunAs, sc.TimeoutSec
+		id := sc.ID
+		j.Kind, j.Name, j.Shell, j.Body, j.RunAs, j.TimeoutSec, j.ScriptID = "script", sc.Name, sc.Shell, sc.Body, sc.RunAs, sc.TimeoutSec, &id
+		params = sc.Params
 	default:
 		sc := store.Script{Name: req.Name, Shell: req.Shell, Body: req.Body, RunAs: req.RunAs, TimeoutSec: req.TimeoutSec}
 		if sc.Name == "" {
 			sc.Name = "Ad-hoc script"
 		}
 		if err := validateScript(&sc); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
+			return nil, userError{err.Error()}
 		}
 		j.Kind, j.Name, j.Shell, j.Body, j.RunAs, j.TimeoutSec = "script", sc.Name, sc.Shell, sc.Body, sc.RunAs, sc.TimeoutSec
 	}
-	ids, target, err := s.resolveTargets(r.Context(), &req)
+	req.Vars = cleanVars(req.Vars)
+	if err := checkVars(req.Vars); err != nil {
+		return nil, userError{err.Error()}
+	}
+	ids, target, err := s.resolveTargets(ctx, req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
+		var nf notFoundTarget
+		if errors.As(err, &nf) {
+			return nil, userError{err.Error()}
+		}
+		return nil, err
 	}
 	if len(ids) == 0 {
-		writeError(w, http.StatusBadRequest, "No devices selected")
-		return
+		return nil, userError{"No devices selected"}
 	}
 	if req.StartInMinutes < 0 || req.StartInMinutes > 60*24*30 || req.DeadlineHours < 0 || req.DeadlineHours > 24*30 {
-		writeError(w, http.StatusBadRequest, "Bad schedule")
-		return
+		return nil, userError{"Bad schedule"}
 	}
 	if req.DeadlineHours == 0 {
 		req.DeadlineHours = 24
@@ -493,12 +523,101 @@ func (s *Server) adminCreateJob(w http.ResponseWriter, r *http.Request) {
 	j.Target = target
 	j.NotBefore = now.Add(time.Duration(req.StartInMinutes) * time.Minute)
 	j.Deadline = j.NotBefore.Add(time.Duration(req.DeadlineHours) * time.Hour)
-	if err := s.store.CreateJob(r.Context(), j, ids); err != nil {
+	plan := &jobPlan{job: j, devices: ids, params: params, missing: map[string][]string{}}
+	if j.Kind == "script" {
+		vc, err := s.loadVarContext(ctx)
+		if err != nil {
+			return nil, err
+		}
+		plan.vc = vc
+		j.RunVars = map[string]store.Vars{}
+		for _, id := range ids {
+			v, miss := vc.resolve(id, params, req.Vars)
+			j.RunVars[id] = v
+			if len(miss) > 0 {
+				plan.missing[id] = miss
+			}
+		}
+	}
+	return plan, nil
+}
+
+// missingText describes devices that lack required variables.
+func (p *jobPlan) missingText() string {
+	var parts []string
+	for _, id := range p.devices {
+		if m := p.missing[id]; len(m) > 0 {
+			parts = append(parts, fmt.Sprintf("%s (%s)", displayName(p.vc.devices[id]), strings.Join(m, ", ")))
+		}
+	}
+	if len(parts) > 5 {
+		parts = append(parts[:5], fmt.Sprintf("and %d more", len(parts)-5))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func (s *Server) adminCreateJob(w http.ResponseWriter, r *http.Request) {
+	var req createJobRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "Bad request")
+		return
+	}
+	plan, err := s.planJob(r.Context(), &req, userFrom(r).Name)
+	var ue userError
+	if errors.As(err, &ue) {
+		writeError(w, http.StatusBadRequest, ue.msg)
+		return
+	}
+	if err != nil {
 		s.internalError(w, err)
 		return
 	}
-	s.cfg.Logger.Info("job created", "job", j.ID, "kind", j.Kind, "name", j.Name, "devices", len(ids), "by", j.CreatedBy)
-	writeJSON(w, http.StatusOK, map[string]any{"job": j, "devices": len(ids)})
+	if len(plan.missing) > 0 {
+		writeError(w, http.StatusBadRequest, "Variables without a value on: "+plan.missingText()+
+			". Set them under Variables, or type a value for every device.")
+		return
+	}
+	j := plan.job
+	if err := s.store.CreateJob(r.Context(), j, plan.devices); err != nil {
+		s.internalError(w, err)
+		return
+	}
+	s.cfg.Logger.Info("job created", "job", j.ID, "kind", j.Kind, "name", j.Name, "devices", len(plan.devices), "by", j.CreatedBy)
+	writeJSON(w, http.StatusOK, map[string]any{"job": j, "devices": len(plan.devices)})
+}
+
+// adminPreviewJob shows the devices a job would run on and their variables.
+func (s *Server) adminPreviewJob(w http.ResponseWriter, r *http.Request) {
+	var req createJobRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "Bad request")
+		return
+	}
+	plan, err := s.planJob(r.Context(), &req, userFrom(r).Name)
+	var ue userError
+	if errors.As(err, &ue) {
+		writeError(w, http.StatusBadRequest, ue.msg)
+		return
+	}
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	type row struct {
+		ID      string     `json:"id"`
+		Name    string     `json:"name"`
+		Vars    store.Vars `json:"vars"`
+		Missing []string   `json:"missing"`
+	}
+	rows := []row{}
+	for _, id := range plan.devices {
+		name := id
+		if plan.vc != nil {
+			name = displayName(plan.vc.devices[id])
+		}
+		rows = append(rows, row{ID: id, Name: name, Vars: plan.job.RunVars[id], Missing: plan.missing[id]})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"target": plan.job.Target, "params": plan.params, "devices": rows})
 }
 
 func (s *Server) adminListJobs(w http.ResponseWriter, r *http.Request) {
@@ -506,7 +625,10 @@ func (s *Server) adminListJobs(w http.ResponseWriter, r *http.Request) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	jobs, err := s.store.ListJobs(r.Context(), limit)
+	q := r.URL.Query()
+	scriptID, _ := strconv.ParseInt(q.Get("script_id"), 10, 64)
+	scheduleID, _ := strconv.ParseInt(q.Get("schedule_id"), 10, 64)
+	jobs, err := s.store.ListJobs(r.Context(), store.JobFilter{Limit: limit, ScriptID: scriptID, ScheduleID: scheduleID})
 	if err != nil {
 		s.internalError(w, err)
 		return

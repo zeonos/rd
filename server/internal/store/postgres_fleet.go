@@ -11,6 +11,10 @@ func (p *Postgres) SetDeviceIP(ctx context.Context, id, ip string) error {
 	return affected(p.pool.Exec(ctx, `UPDATE devices SET ip=$2 WHERE id=$1`, id, ip))
 }
 
+func (p *Postgres) SetDeviceSync(ctx context.Context, id, report string, at time.Time) error {
+	return affected(p.pool.Exec(ctx, `UPDATE devices SET sync=$2, sync_at=$3 WHERE id=$1`, id, report, at))
+}
+
 func (p *Postgres) SetDeviceInventory(ctx context.Context, id, inventory, disks string, at time.Time) error {
 	return affected(p.pool.Exec(ctx, `UPDATE devices SET inventory=$2, inventory_at=$3, disks=$4 WHERE id=$1`, id, inventory, at, disks))
 }

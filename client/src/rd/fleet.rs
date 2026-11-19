@@ -25,6 +25,9 @@ const INVENTORY_SCRIPT: &str = include_str!("inventory.ps1");
 const INVENTORY_FIRST: Duration = Duration::from_secs(180);
 const INVENTORY_EVERY: Duration = Duration::from_secs(6 * 3600);
 const TASK_NAME: &str = "RD-Update";
+const SYNC_SCRIPT: &str = include_str!("syncthing.ps1");
+const SYNC_FIRST: Duration = Duration::from_secs(90);
+const SYNC_EVERY: Duration = Duration::from_secs(300);
 
 pub fn start_inventory() {
     thread::spawn(|| {
@@ -36,6 +39,46 @@ pub fn start_inventory() {
             thread::sleep(INVENTORY_EVERY);
         }
     });
+}
+
+/// Syncthing status every 5 minutes; see syncthing.ps1 and server/internal/api/sync.go.
+pub fn start_sync() {
+    thread::spawn(|| {
+        thread::sleep(SYNC_FIRST);
+        loop {
+            if let Err(e) = send_sync() {
+                log::warn!("RD agent: Syncthing status not sent: {}", e);
+            }
+            thread::sleep(SYNC_EVERY);
+        }
+    });
+}
+
+fn send_sync() -> Result<(), String> {
+    let url = api();
+    if url.is_empty() {
+        return Ok(());
+    }
+    let (ok, code, out) = powershell(SYNC_SCRIPT, Duration::from_secs(120));
+    if !ok {
+        return Err(format!("syncthing script exited with {}", code));
+    }
+    let report = out.trim().to_owned();
+    serde_json::from_str::<serde_json::Value>(&report)
+        .map_err(|e| format!("Syncthing report is not JSON: {}", e))?;
+    let id = Config::get_id();
+    let ts = now().to_string();
+    let msg = format!(
+        "rd-sync\n{}\n{}\n{}",
+        id,
+        hex(&Sha256::digest(report.as_bytes())),
+        ts
+    );
+    let sig = device_sign(&msg).ok_or("no device key")?;
+    let body = serde_json::json!({ "id": id, "ts": ts, "report": report, "sig": sig }).to_string();
+    crate::post_request_sync(format!("{}/api/agent/sync", url), body, "")
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 fn hex(b: &[u8]) -> String {

@@ -31,6 +31,7 @@ import (
 	"syscall"
 	"text/tabwriter"
 	"time"
+	_ "time/tzdata" // schedules use IANA time zones; the image has no zoneinfo
 
 	"github.com/zeonos/rd/server/internal/api"
 	"github.com/zeonos/rd/server/internal/auth"
@@ -118,6 +119,7 @@ func serve(ctx context.Context, st store.Store) error {
 		TrustProxy:       env("RD_TRUSTED_PROXY", "0") == "1",
 		DataDir:          env("RD_DATA_DIR", "/data"),
 		DiskAlertPercent: envInt("RD_ALERT_DISK_PERCENT", 10),
+		SyncAlert:        time.Duration(envInt("RD_ALERT_SYNC_MINUTES", 240)) * time.Minute,
 		Logger:           logger,
 		Notify: func(title, msg string) {
 			logger.Info("notify", "title", title, "message", msg)

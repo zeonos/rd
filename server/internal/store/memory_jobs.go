@@ -58,7 +58,9 @@ func (m *Memory) ListScripts(ctx context.Context) ([]Script, error) {
 	defer m.mu.Unlock()
 	out := make([]Script, 0, len(m.j().scripts))
 	for _, s := range m.j().scripts {
-		out = append(out, *s)
+		c := *s
+		c.Params = append([]ScriptParam{}, s.Params...)
+		out = append(out, c)
 	}
 	sort.Slice(out, func(i, k int) bool { return strings.ToLower(out[i].Name) < strings.ToLower(out[k].Name) })
 	return out, nil
@@ -72,6 +74,7 @@ func (m *Memory) GetScript(ctx context.Context, id int64) (*Script, error) {
 		return nil, ErrNotFound
 	}
 	c := *s
+	c.Params = append([]ScriptParam(nil), s.Params...)
 	return &c, nil
 }
 
@@ -93,7 +96,11 @@ func (m *Memory) SaveScript(ctx context.Context, s *Script) error {
 		return ErrNotFound
 	}
 	s.UpdatedAt = now
+	if s.Params == nil {
+		s.Params = []ScriptParam{}
+	}
 	c := *s
+	c.Params = append([]ScriptParam{}, s.Params...)
 	m.j().scripts[s.ID] = &c
 	return nil
 }
@@ -105,6 +112,11 @@ func (m *Memory) DeleteScript(ctx context.Context, id int64) error {
 		return ErrNotFound
 	}
 	delete(m.j().scripts, id)
+	for sid, sc := range m.l().schedules {
+		if sc.ScriptID == id {
+			delete(m.l().schedules, sid)
+		}
+	}
 	return nil
 }
 
@@ -114,20 +126,28 @@ func (m *Memory) CreateJob(ctx context.Context, j *Job, deviceIDs []string) erro
 	j.ID = m.id()
 	j.CreatedAt = m.nowSource()
 	c := *j
+	c.RunVars, c.Vars, c.Counts = nil, nil, nil
 	m.j().jobs[j.ID] = &c
 	runs := map[string]*JobRun{}
 	for _, d := range deviceIDs {
-		runs[d] = &JobRun{JobID: j.ID, DeviceID: d, Status: RunQueued}
+		runs[d] = &JobRun{JobID: j.ID, DeviceID: d, Status: RunQueued, Vars: copyVars(j.RunVars[d])}
 	}
 	m.j().runs[j.ID] = runs
 	return nil
 }
 
-func (m *Memory) ListJobs(ctx context.Context, limit int) ([]Job, error) {
+func (m *Memory) ListJobs(ctx context.Context, f JobFilter) ([]Job, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	limit := f.Limit
 	out := make([]Job, 0, len(m.j().jobs))
 	for _, j := range m.j().jobs {
+		if f.ScriptID != 0 && (j.ScriptID == nil || *j.ScriptID != f.ScriptID) {
+			continue
+		}
+		if f.ScheduleID != 0 && (j.ScheduleID == nil || *j.ScheduleID != f.ScheduleID) {
+			continue
+		}
 		c := *j
 		c.Counts = map[string]int{}
 		for _, r := range m.j().runs[j.ID] {
@@ -152,7 +172,9 @@ func (m *Memory) GetJob(ctx context.Context, id int64) (*Job, []JobRun, error) {
 	c := *j
 	runs := make([]JobRun, 0, len(m.j().runs[id]))
 	for _, r := range m.j().runs[id] {
-		runs = append(runs, *r)
+		c := *r
+		c.Vars = copyVars(r.Vars)
+		runs = append(runs, c)
 	}
 	sort.Slice(runs, func(i, k int) bool { return runs[i].DeviceID < runs[k].DeviceID })
 	return &c, runs, nil
@@ -191,7 +213,9 @@ func (m *Memory) ClaimRuns(ctx context.Context, deviceID string, now time.Time) 
 		r.Status = RunSent
 		t := now
 		r.SentAt = &t
-		out = append(out, *j)
+		c := *j
+		c.Vars = copyVars(r.Vars)
+		out = append(out, c)
 	}
 	sort.Slice(out, func(i, k int) bool { return out[i].ID < out[k].ID })
 	return out, nil
@@ -232,4 +256,15 @@ func (m *Memory) ExpireRuns(ctx context.Context, now time.Time) error {
 		}
 	}
 	return nil
+}
+
+func copyVars(v Vars) Vars {
+	if len(v) == 0 {
+		return nil
+	}
+	c := make(Vars, len(v))
+	for k, x := range v {
+		c[k] = x
+	}
+	return c
 }

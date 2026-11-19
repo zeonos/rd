@@ -89,7 +89,7 @@ func TestJobs(t *testing.T) {
 			if runs[0].Status != RunExpired {
 				t.Fatalf("expected expired, got %s", runs[0].Status)
 			}
-			list, err := s.ListJobs(ctx, 10)
+			list, err := s.ListJobs(ctx, JobFilter{Limit: 10})
 			if err != nil || len(list) != 2 || list[0].ID != later.ID || list[1].Counts[RunSuccess] != 1 {
 				t.Fatalf("list jobs: %v %+v", err, list)
 			}

@@ -6,15 +6,24 @@ import (
 )
 
 type Script struct {
-	ID          int64     `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	Shell       string    `json:"shell"` // powershell | cmd
-	Body        string    `json:"body"`
-	RunAs       string    `json:"run_as"` // system | user
-	TimeoutSec  int       `json:"timeout_sec"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          int64  `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Shell       string `json:"shell"` // powershell | cmd
+	Body        string `json:"body"`
+	RunAs       string `json:"run_as"` // system | user
+	TimeoutSec  int    `json:"timeout_sec"`
+	// Params are the variables the script uses. Their values come from the
+	// device, its location or the default here, resolved when a job is created.
+	Params    []ScriptParam `json:"params"`
+	CreatedAt time.Time     `json:"created_at"`
+	UpdatedAt time.Time     `json:"updated_at"`
+}
+
+type ScriptParam struct {
+	Name        string `json:"name"`
+	Default     string `json:"default"`
+	Description string `json:"description"`
 }
 
 type Job struct {
@@ -31,8 +40,20 @@ type Job struct {
 	NotBefore  time.Time `json:"not_before"`
 	Deadline   time.Time `json:"deadline"`
 	CreatedAt  time.Time `json:"created_at"`
+	ScriptID   *int64    `json:"script_id"`   // saved script it came from, if any
+	ScheduleID *int64    `json:"schedule_id"` // schedule that created it, if any
 	// Counts by run status, filled by ListJobs.
 	Counts map[string]int `json:"counts,omitempty"`
+	// RunVars are the resolved variables per device, stored by CreateJob.
+	RunVars map[string]map[string]string `json:"-"`
+	// Vars are this device's variables, filled by ClaimRuns.
+	Vars map[string]string `json:"-"`
+}
+
+type JobFilter struct {
+	ScriptID   int64
+	ScheduleID int64
+	Limit      int
 }
 
 const (
@@ -53,13 +74,14 @@ func RunFinal(status string) bool {
 }
 
 type JobRun struct {
-	JobID      int64      `json:"job_id"`
-	DeviceID   string     `json:"device_id"`
-	Status     string     `json:"status"`
-	ExitCode   *int       `json:"exit_code"`
-	Output     string     `json:"output"`
-	SentAt     *time.Time `json:"sent_at"`
-	FinishedAt *time.Time `json:"finished_at"`
+	JobID      int64             `json:"job_id"`
+	DeviceID   string            `json:"device_id"`
+	Status     string            `json:"status"`
+	ExitCode   *int              `json:"exit_code"`
+	Output     string            `json:"output"`
+	SentAt     *time.Time        `json:"sent_at"`
+	FinishedAt *time.Time        `json:"finished_at"`
+	Vars       map[string]string `json:"vars,omitempty"`
 }
 
 // JobStore is part of Store.
@@ -74,9 +96,10 @@ type JobStore interface {
 	SaveScript(ctx context.Context, s *Script) error // insert when ID == 0
 	DeleteScript(ctx context.Context, id int64) error
 
-	// CreateJob inserts the job and one queued run per device.
+	// CreateJob inserts the job and one queued run per device, with
+	// j.RunVars[device] as that run's variables.
 	CreateJob(ctx context.Context, j *Job, deviceIDs []string) error
-	ListJobs(ctx context.Context, limit int) ([]Job, error)
+	ListJobs(ctx context.Context, f JobFilter) ([]Job, error)
 	GetJob(ctx context.Context, id int64) (*Job, []JobRun, error)
 	CancelJob(ctx context.Context, id int64) error
 	// ClaimRuns marks due queued runs of a device as sent and returns them.

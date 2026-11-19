@@ -400,13 +400,13 @@ func (p *Postgres) SetPolicy(ctx context.Context, scope int64, values map[string
 // --- devices ---
 
 const deviceCols = `id, uuid, group_id, hostname, username, os, cpu, memory, version, alias, note,
-	password_h1, public_key, conns, last_seen, created_at, updated_at, ip, build, inventory_at, disks`
+	password_h1, public_key, conns, last_seen, created_at, updated_at, ip, build, inventory_at, disks, sync, sync_at`
 
 func scanDevice(row pgx.Row) (*Device, error) {
 	var d Device
 	err := row.Scan(&d.ID, &d.UUID, &d.GroupID, &d.Hostname, &d.Username, &d.OS, &d.CPU, &d.Memory,
 		&d.Version, &d.Alias, &d.Note, &d.PasswordH1, &d.PublicKey, &d.Conns, &d.LastSeen, &d.CreatedAt, &d.UpdatedAt,
-		&d.IP, &d.Build, &d.InventoryAt, &d.Disks)
+		&d.IP, &d.Build, &d.InventoryAt, &d.Disks, &d.Sync, &d.SyncAt)
 	if err != nil {
 		return nil, notFound(err)
 	}

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -25,15 +26,24 @@ func (p *Postgres) PutServerKeyIfAbsent(ctx context.Context, name, value string)
 	return p.GetServerKey(ctx, name)
 }
 
-const scriptCols = `id, name, description, shell, body, run_as, timeout_sec, created_at, updated_at`
+const scriptCols = `id, name, description, shell, body, run_as, timeout_sec, params, created_at, updated_at`
 
 func scanScript(row pgx.Row) (*Script, error) {
 	var s Script
-	err := row.Scan(&s.ID, &s.Name, &s.Description, &s.Shell, &s.Body, &s.RunAs, &s.TimeoutSec, &s.CreatedAt, &s.UpdatedAt)
+	var params []byte
+	err := row.Scan(&s.ID, &s.Name, &s.Description, &s.Shell, &s.Body, &s.RunAs, &s.TimeoutSec, &params, &s.CreatedAt, &s.UpdatedAt)
 	if err != nil {
 		return nil, notFound(err)
 	}
+	if err := json.Unmarshal(params, &s.Params); err != nil || s.Params == nil {
+		s.Params = []ScriptParam{}
+	}
 	return &s, nil
+}
+
+func jsonArg(v any) string {
+	b, _ := json.Marshal(v)
+	return string(b)
 }
 
 func (p *Postgres) ListScripts(ctx context.Context) ([]Script, error) {
@@ -59,16 +69,20 @@ func (p *Postgres) GetScript(ctx context.Context, id int64) (*Script, error) {
 
 func (p *Postgres) SaveScript(ctx context.Context, s *Script) error {
 	var err error
+	if s.Params == nil {
+		s.Params = []ScriptParam{}
+	}
+	params := jsonArg(s.Params)
 	if s.ID == 0 {
 		err = p.pool.QueryRow(ctx,
-			`INSERT INTO scripts(name, description, shell, body, run_as, timeout_sec) VALUES($1,$2,$3,$4,$5,$6)
+			`INSERT INTO scripts(name, description, shell, body, run_as, timeout_sec, params) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb)
 			 RETURNING id, created_at, updated_at`,
-			s.Name, s.Description, s.Shell, s.Body, s.RunAs, s.TimeoutSec).Scan(&s.ID, &s.CreatedAt, &s.UpdatedAt)
+			s.Name, s.Description, s.Shell, s.Body, s.RunAs, s.TimeoutSec, params).Scan(&s.ID, &s.CreatedAt, &s.UpdatedAt)
 	} else {
 		err = p.pool.QueryRow(ctx,
-			`UPDATE scripts SET name=$2, description=$3, shell=$4, body=$5, run_as=$6, timeout_sec=$7, updated_at=now()
+			`UPDATE scripts SET name=$2, description=$3, shell=$4, body=$5, run_as=$6, timeout_sec=$7, params=$8::jsonb, updated_at=now()
 			 WHERE id=$1 RETURNING created_at, updated_at`,
-			s.ID, s.Name, s.Description, s.Shell, s.Body, s.RunAs, s.TimeoutSec).Scan(&s.CreatedAt, &s.UpdatedAt)
+			s.ID, s.Name, s.Description, s.Shell, s.Body, s.RunAs, s.TimeoutSec, params).Scan(&s.CreatedAt, &s.UpdatedAt)
 		err = notFound(err)
 	}
 	if isUnique(err) {
@@ -81,12 +95,12 @@ func (p *Postgres) DeleteScript(ctx context.Context, id int64) error {
 	return affected(p.pool.Exec(ctx, `DELETE FROM scripts WHERE id=$1`, id))
 }
 
-const jobCols = `id, kind, name, shell, body, run_as, timeout_sec, action, target, created_by, not_before, deadline, created_at`
+const jobCols = `id, kind, name, shell, body, run_as, timeout_sec, action, target, created_by, not_before, deadline, created_at, script_id, schedule_id`
 
-func scanJob(row pgx.Row) (*Job, error) {
+func scanJob(row pgx.Row, extra ...any) (*Job, error) {
 	var j Job
-	err := row.Scan(&j.ID, &j.Kind, &j.Name, &j.Shell, &j.Body, &j.RunAs, &j.TimeoutSec, &j.Action, &j.Target,
-		&j.CreatedBy, &j.NotBefore, &j.Deadline, &j.CreatedAt)
+	err := row.Scan(append([]any{&j.ID, &j.Kind, &j.Name, &j.Shell, &j.Body, &j.RunAs, &j.TimeoutSec, &j.Action, &j.Target,
+		&j.CreatedBy, &j.NotBefore, &j.Deadline, &j.CreatedAt, &j.ScriptID, &j.ScheduleID}, extra...)...)
 	if err != nil {
 		return nil, notFound(err)
 	}
@@ -100,26 +114,37 @@ func (p *Postgres) CreateJob(ctx context.Context, j *Job, deviceIDs []string) er
 	}
 	defer tx.Rollback(ctx)
 	err = tx.QueryRow(ctx,
-		`INSERT INTO jobs(kind, name, shell, body, run_as, timeout_sec, action, target, created_by, not_before, deadline)
-		 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id, created_at`,
-		j.Kind, j.Name, j.Shell, j.Body, j.RunAs, j.TimeoutSec, j.Action, j.Target, j.CreatedBy, j.NotBefore, j.Deadline).
+		`INSERT INTO jobs(kind, name, shell, body, run_as, timeout_sec, action, target, created_by, not_before, deadline, script_id, schedule_id)
+		 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id, created_at`,
+		j.Kind, j.Name, j.Shell, j.Body, j.RunAs, j.TimeoutSec, j.Action, j.Target, j.CreatedBy, j.NotBefore, j.Deadline,
+		j.ScriptID, j.ScheduleID).
 		Scan(&j.ID, &j.CreatedAt)
 	if err != nil {
 		return err
 	}
+	vars := make([]string, len(deviceIDs))
+	for i, d := range deviceIDs {
+		v := j.RunVars[d]
+		if v == nil {
+			v = Vars{}
+		}
+		vars[i] = jsonArg(v)
+	}
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO job_runs(job_id, device_id, status) SELECT $1, unnest($2::text[]), $3`,
-		j.ID, deviceIDs, RunQueued); err != nil {
+		`INSERT INTO job_runs(job_id, device_id, status, vars) SELECT $1, d, $3, v::jsonb FROM unnest($2::text[], $4::text[]) AS t(d, v)`,
+		j.ID, deviceIDs, RunQueued, vars); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
 }
 
-func (p *Postgres) ListJobs(ctx context.Context, limit int) ([]Job, error) {
+func (p *Postgres) ListJobs(ctx context.Context, f JobFilter) ([]Job, error) {
+	limit := f.Limit
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := p.pool.Query(ctx, `SELECT `+jobCols+` FROM jobs ORDER BY id DESC LIMIT $1`, limit)
+	rows, err := p.pool.Query(ctx, `SELECT `+jobCols+` FROM jobs
+		WHERE ($2::bigint = 0 OR script_id = $2::bigint) AND ($3::bigint = 0 OR schedule_id = $3::bigint) ORDER BY id DESC LIMIT $1`, limit, f.ScriptID, f.ScheduleID)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +192,7 @@ func (p *Postgres) GetJob(ctx context.Context, id int64) (*Job, []JobRun, error)
 		return nil, nil, err
 	}
 	rows, err := p.pool.Query(ctx,
-		`SELECT job_id, device_id, status, exit_code, output, sent_at, finished_at FROM job_runs WHERE job_id=$1 ORDER BY device_id`, id)
+		`SELECT job_id, device_id, status, exit_code, output, sent_at, finished_at, vars FROM job_runs WHERE job_id=$1 ORDER BY device_id`, id)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -175,9 +200,11 @@ func (p *Postgres) GetJob(ctx context.Context, id int64) (*Job, []JobRun, error)
 	var runs []JobRun
 	for rows.Next() {
 		var r JobRun
-		if err := rows.Scan(&r.JobID, &r.DeviceID, &r.Status, &r.ExitCode, &r.Output, &r.SentAt, &r.FinishedAt); err != nil {
+		var vars []byte
+		if err := rows.Scan(&r.JobID, &r.DeviceID, &r.Status, &r.ExitCode, &r.Output, &r.SentAt, &r.FinishedAt, &vars); err != nil {
 			return nil, nil, err
 		}
+		r.Vars = decodeVars(vars)
 		runs = append(runs, r)
 	}
 	return j, runs, rows.Err()
@@ -202,7 +229,7 @@ func (p *Postgres) ClaimRuns(ctx context.Context, deviceID string, now time.Time
 		 FROM jobs j
 		 WHERE r.job_id=j.id AND r.device_id=$1 AND r.status=$4 AND j.not_before <= $3 AND j.deadline > $3
 		 RETURNING j.id, j.kind, j.name, j.shell, j.body, j.run_as, j.timeout_sec, j.action, j.target,
-		           j.created_by, j.not_before, j.deadline, j.created_at`,
+		           j.created_by, j.not_before, j.deadline, j.created_at, j.script_id, j.schedule_id, r.vars`,
 		deviceID, RunSent, now, RunQueued)
 	if err != nil {
 		return nil, err
@@ -210,10 +237,12 @@ func (p *Postgres) ClaimRuns(ctx context.Context, deviceID string, now time.Time
 	defer rows.Close()
 	var out []Job
 	for rows.Next() {
-		j, err := scanJob(rows)
+		var vars []byte
+		j, err := scanJob(rows, &vars)
 		if err != nil {
 			return nil, err
 		}
+		j.Vars = decodeVars(vars)
 		out = append(out, *j)
 	}
 	if err := rows.Err(); err != nil {
@@ -248,4 +277,12 @@ func (p *Postgres) ExpireRuns(ctx context.Context, now time.Time) error {
 		   (r.status=$4 AND j.deadline + make_interval(secs => j.timeout_sec) + interval '5 minutes' <= $2))`,
 		RunExpired, now, RunQueued, RunSent)
 	return err
+}
+
+func decodeVars(b []byte) Vars {
+	var v Vars
+	if len(b) == 0 || json.Unmarshal(b, &v) != nil || len(v) == 0 {
+		return nil
+	}
+	return v
 }

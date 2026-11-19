@@ -24,6 +24,7 @@ import '../widgets/remote_toolbar.dart';
 import '../widgets/kb_layout_type_chooser.dart';
 import '../widgets/tabbar_widget.dart';
 import 'macos_full_screen_focus_recovery.dart';
+import '../../rd/session_toolbar.dart';
 
 import 'package:flutter_hbb/native/custom_cursor.dart'
     if (dart.library.html) 'package:flutter_hbb/web/custom_cursor.dart';
@@ -785,7 +786,7 @@ class _RemotePageState extends State<RemotePage>
               // Use Overlay to enable rebuild every time on menu button click.
               // Hide toolbar when relative mouse mode is active to prevent
               // cursor from escaping to toolbar area.
-              Obx(() => _ffi.inputModel.relativeMouseMode.value
+              Obx(() => _ffi.inputModel.relativeMouseMode.value || rdSessionToolbarShown
                   ? const Offstage()
                   : _ffi.ffiModel.pi.isSet.isTrue
                       ? Overlay(initialEntries: [
@@ -801,7 +802,9 @@ class _RemotePageState extends State<RemotePage>
 
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.background,
-      body: Obx(() {
+      body: Column(children: [
+        RdSessionToolbar(id: widget.id, ffi: _ffi),
+        Expanded(child: Obx(() {
         final imageReady = _ffi.ffiModel.pi.isSet.isTrue &&
             _ffi.ffiModel.waitForFirstImage.isFalse;
         if (imageReady) {
@@ -826,7 +829,8 @@ class _RemotePageState extends State<RemotePage>
           // The toolbar's block state won't work properly when reconnecting, but that's okay.
           return bodyWidget();
         }
-      }),
+      })),
+      ]),
     );
   }
 

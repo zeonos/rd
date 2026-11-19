@@ -60,3 +60,5 @@ flutter/web/
 /third_party/libdrmtap/
 # Local git worktrees
 .worktrees/
+
+# RD: upstream ignores *png/*svg but ships these; keep them tracked (git add -f).

@@ -11,6 +11,7 @@ import 'package:window_manager/window_manager.dart';
 // import 'package:flutter/services.dart';
 
 import '../../common/shared_state.dart';
+import '../../rd/settings.dart';
 
 class DesktopTabPage extends StatefulWidget {
   const DesktopTabPage({Key? key}) : super(key: key);
@@ -27,9 +28,8 @@ class DesktopTabPage extends StatefulWidget {
           label: kTabLabelSettingPage,
           selectedIcon: Icons.build_sharp,
           unselectedIcon: Icons.build_outlined,
-          page: DesktopSettingPage(
-            key: const ValueKey(kTabLabelSettingPage),
-            initialTabkey: initialPage,
+          page: const RdSettingsPage(
+            key: ValueKey(kTabLabelSettingPage),
           )));
     } catch (e) {
       debugPrintStack(label: '$e');

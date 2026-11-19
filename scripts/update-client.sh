@@ -23,6 +23,11 @@ tar -C "$TMP/rustdesk" --exclude=.git --exclude='libs/hbb_common/.git' -cf - . |
 rm -f "$ROOT/client/.gitmodules"
 
 git -C "$ROOT" add -A client
+# Upstream's .gitignore ignores *png/*svg it still ships (icons, toolbar SVGs):
+# add every file of the upstream tree, ignored or not.
+( cd "$TMP/rustdesk" && git ls-files ) | sed 's|^|client/|' | while read -r f; do
+  [ -f "$ROOT/$f" ] && git -C "$ROOT" add -f -- "$f"
+done
 git -C "$ROOT" commit -m "Vendor RustDesk $TAG (hbb_common $HBB) unmodified"
 
 for p in "$ROOT"/patches/*.patch; do

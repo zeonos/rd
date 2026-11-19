@@ -44,6 +44,7 @@ import '../common/widgets/dialog.dart';
 import 'input_model.dart';
 import 'platform_model.dart';
 import 'package:flutter_hbb/utils/scale.dart';
+import 'package:flutter_hbb/rd/session_toolbar.dart' show rdSessionToolbarHeight;
 
 import 'package:flutter_hbb/generated_bridge.dart'
     if (dart.library.html) 'package:flutter_hbb/web/bridge.dart';
@@ -2331,7 +2332,10 @@ class CanvasModel with ChangeNotifier {
   static double get rightToEdge =>
       isDesktop ? windowBorderWidth + kDragToResizeAreaPadding.right : 0;
   static double get topToEdge => isDesktop
-      ? tabBarHeight + windowBorderWidth + kDragToResizeAreaPadding.top
+      ? tabBarHeight +
+          rdSessionToolbarHeight() +
+          windowBorderWidth +
+          kDragToResizeAreaPadding.top
       : 0;
   static double get bottomToEdge =>
       isDesktop ? windowBorderWidth + kDragToResizeAreaPadding.bottom : 0;

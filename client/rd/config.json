@@ -17,6 +17,10 @@
     "hide-proxy-settings": "N"
   },
   "default-settings": {
-    "enable-check-update": "N"
+    "enable-check-update": "N",
+    "lang": "en",
+    "theme": "light",
+    "view-style": "adaptive",
+    "image-quality": "balanced"
   }
 }

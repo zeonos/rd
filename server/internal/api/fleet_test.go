@@ -193,7 +193,7 @@ func TestInstallScript(t *testing.T) {
 		!strings.Contains(body, "[switch]$WebSocket = $true") {
 		t.Fatalf("script: %d\n%s", code, body)
 	}
-	if code, _ := e.do("GET", "/install?token=x';calc;'", "", nil); code != 400 {
+	if code, _ := e.do("GET", "/install?token=x%27%2Bcalc%2B%27", "", nil); code != 400 {
 		t.Fatal("token with quotes accepted")
 	}
 }

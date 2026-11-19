@@ -3,9 +3,9 @@ name: API server
 on:
   push:
     branches: [main]
-    paths: ["server/**", ".github/workflows/server.yml"]
+    paths: ["server/**", "web/**", ".github/workflows/server.yml"]
   pull_request:
-    paths: ["server/**", ".github/workflows/server.yml"]
+    paths: ["server/**", "web/**", ".github/workflows/server.yml"]
 
 # A newer push to the same branch or pull request cancels the older, now outdated build.
 concurrency:
@@ -43,3 +43,16 @@ jobs:
           RD_TEST_DATABASE_URL: postgres://rd:rd@localhost:5432/rdtest?sslmode=disable
       - name: Docker build
         run: docker build -t rd-api .
+
+  # The browser viewer bundle is committed (embedded in the API binary): check
+  # it matches its sources and the .proto files.
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install -g esbuild@0.28.2 typescript@6.0.3
+      - run: web/build.sh
+      - run: git diff --exit-code -- server/internal/webclient/static/app.js web/src/schema.json

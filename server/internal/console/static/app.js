@@ -296,7 +296,8 @@ function deviceDetail(d) {
       h("dt", {}, "Client"), h("dd", {}, (d.version || "-") + (d.build ? ` (build ${d.build})` : "")),
       h("dt", {}, "Enrolled"), h("dd", {}, when(d.created_at))),
     h("div", { class: "row" },
-      h("button", { class: "btn primary", onclick: () => runDialog({ devices: [d.id] }) }, "Run script"),
+      h("button", { class: "btn primary", onclick: () => window.open("/web/#" + encodeURIComponent(d.id), "_blank") }, "Open in browser"),
+      h("button", { class: "btn", onclick: () => runDialog({ devices: [d.id] }) }, "Run script"),
       h("button", { class: "btn", onclick: () => powerDialog({ devices: [d.id] }) }, "Restart or shut down"),
       h("button", { class: "btn", onclick: () => moveDialog([d.id]) }, "Move")));
   const edit = h("form", {

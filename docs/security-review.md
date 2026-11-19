@@ -26,8 +26,8 @@ hbbs/hbbr build (`rendezvous/`), the client patch (`client/`, see
   `rendezvous/` and `client/`, and Trivy on the API and hbbs images.
 
 - **pgx SQL placeholder confusion (GO-2026-5004)**, found by the new
-  govulncheck step: pgx v5.7.2 → v5.9.2 (needs Go 1.25; the API image now
-  builds with Go 1.25). Our queries contain no dollar-quoted literals, so it
+  govulncheck step: pgx v5.7.2 → v5.9.2. The API now builds with
+  Go 1.26, which the newest pgx and x/crypto need. Our queries contain no dollar-quoted literals, so it
   was not exploitable here, but it is fixed. golang.org/x/crypto is moved to
   its newest release at the same time.
 

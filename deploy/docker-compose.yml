@@ -87,12 +87,17 @@ services:
       RD_ALERT_NTFY_URL: ${ALERT_NTFY_URL:-}
       RD_ALERT_OFFLINE_MINUTES: ${ALERT_OFFLINE_MINUTES:-10}
       RD_TRUSTED_PROXY: "1"
+      RD_DATA_DIR: /data
+      RD_ALERT_DISK_PERCENT: ${ALERT_DISK_PERCENT:-10}
+    volumes:
+      - rd_data:/data
     depends_on:
       postgres:
         condition: service_healthy
     profiles: ["api"]
 
 volumes:
+  rd_data:
   caddy_data:
   caddy_config:
   pgdata:

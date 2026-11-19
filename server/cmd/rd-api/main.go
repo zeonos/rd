@@ -113,10 +113,12 @@ func serve(ctx context.Context, st store.Store) error {
 	}
 	ntfy := os.Getenv("RD_ALERT_NTFY_URL")
 	srv := api.New(st, api.Config{
-		RequireTOTP:  env("RD_REQUIRE_TOTP", "1") != "0",
-		OfflineAlert: time.Duration(envInt("RD_ALERT_OFFLINE_MINUTES", 10)) * time.Minute,
-		TrustProxy:   env("RD_TRUSTED_PROXY", "0") == "1",
-		Logger:       logger,
+		RequireTOTP:      env("RD_REQUIRE_TOTP", "1") != "0",
+		OfflineAlert:     time.Duration(envInt("RD_ALERT_OFFLINE_MINUTES", 10)) * time.Minute,
+		TrustProxy:       env("RD_TRUSTED_PROXY", "0") == "1",
+		DataDir:          env("RD_DATA_DIR", "/data"),
+		DiskAlertPercent: envInt("RD_ALERT_DISK_PERCENT", 10),
+		Logger:           logger,
 		Notify: func(title, msg string) {
 			logger.Info("notify", "title", title, "message", msg)
 			if ntfy == "" {

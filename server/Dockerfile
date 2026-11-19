@@ -9,7 +9,8 @@ COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/rd-api ./cmd/rd-api
 
 FROM alpine:3.21
-RUN apk add --no-cache ca-certificates tzdata && adduser -D -H -u 10001 rd
+RUN apk add --no-cache ca-certificates tzdata && adduser -D -H -u 10001 rd \
+    && mkdir -p /data && chown rd /data
 COPY --from=build /out/rd-api /usr/local/bin/rd-api
 USER rd
 EXPOSE 8080

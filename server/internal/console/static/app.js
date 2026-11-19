@@ -168,7 +168,7 @@ function devicesIn(loc) {
 
 // ---------- shell ----------
 
-const TABS = [["devices", "Devices"], ["jobs", "Jobs"], ["scripts", "Scripts"], ["settings", "Settings"], ["enrol", "Enrolment"]];
+const TABS = [["devices", "Devices"], ["jobs", "Jobs"], ["scripts", "Scripts"], ["settings", "Settings"], ["updates", "Updates"], ["enrol", "Enrolment"]];
 
 function shell(section, content) {
   const tabs = h("nav", { class: "tabs", "aria-label": "Sections" },
@@ -292,7 +292,8 @@ function deviceDetail(d) {
       h("dt", {}, "Logged on"), h("dd", {}, d.username || "-"),
       h("dt", {}, "CPU"), h("dd", {}, d.cpu || "-"),
       h("dt", {}, "Memory"), h("dd", {}, d.memory || "-"),
-      h("dt", {}, "Client"), h("dd", {}, d.version || "-"),
+      h("dt", {}, "Public IP"), h("dd", {}, d.ip || "-"),
+      h("dt", {}, "Client"), h("dd", {}, (d.version || "-") + (d.build ? ` (build ${d.build})` : "")),
       h("dt", {}, "Enrolled"), h("dd", {}, when(d.created_at))),
     h("div", { class: "row" },
       h("button", { class: "btn primary", onclick: () => runDialog({ devices: [d.id] }) }, "Run script"),
@@ -324,8 +325,115 @@ function deviceDetail(d) {
         return [h("dt", {}, s.label), h("dd", {}, v, " ", h("span", { class: "muted" }, r.source ? `from ${r.source}` : "default"))];
       })));
   }).catch((e) => pol.replaceChildren(h("p", { class: "error" }, e.message)));
-  panel.append(info, edit, pol);
+  const inv = h("div", { class: "panel" }, h("h2", {}, "Inventory"), h("p", { class: "muted" }, "Loading"));
+  api("GET", `/api/admin/devices/${d.id}/inventory`).then((x) => inv.replaceChildren(...inventoryView(x, d)))
+    .catch((e) => inv.replaceChildren(h("p", { class: "error" }, e.message)));
+  panel.append(info, edit, inv, pol);
   return panel;
+}
+
+function gb(n) { return n ? (n / 1e9).toFixed(n >= 1e11 ? 0 : 1) + " GB" : "-"; }
+
+// Inventory as the agent reports it: see client/src/rd/inventory.ps1.
+function inventoryView(x, d) {
+  const head = h("h2", {}, "Inventory");
+  if (!x) return [head, h("p", { class: "muted" }, "No inventory yet. Clients from build 1 on report it a few minutes after starting, then every 6 hours.")];
+  const out = [head, h("p", { class: "muted" }, `Reported ${ago(d.inventory_at)}`)];
+  const facts = [];
+  const fact = (k, v) => { if (v !== undefined && v !== null && v !== "") facts.push(h("dt", {}, k), h("dd", {}, String(v))); };
+  fact("Manufacturer", [x.manufacturer, x.model].filter(Boolean).join(" "));
+  fact("Serial number", x.serial);
+  fact("Windows", [x.os_caption, x.os_build && `build ${x.os_build}`].filter(Boolean).join(", "));
+  fact("Up since", x.boot_time && `${when(x.boot_time)} (${ago(x.boot_time).replace(" ago", "")})`);
+  fact("Pending updates", x.pending_updates === undefined || x.pending_updates < 0 ? "" : x.pending_updates);
+  fact("Reboot pending", x.reboot_pending === undefined ? "" : x.reboot_pending ? "Yes" : "No");
+  out.push(h("dl", { class: "facts" }, facts));
+  if (x.disks && x.disks.length) {
+    out.push(h("div", { class: "table-wrap" }, h("table", {},
+      h("thead", {}, h("tr", {}, h("th", {}, "Disk"), h("th", {}, "Size"), h("th", {}, "Free"), h("th", {}, ""))),
+      h("tbody", {}, x.disks.map((k) => {
+        const pct = k.size ? Math.round(k.free * 100 / k.size) : 0;
+        return h("tr", {}, h("td", {}, [k.name, k.label].filter(Boolean).join(" ")), h("td", {}, gb(k.size)), h("td", {}, gb(k.free)),
+          h("td", {}, h("span", { class: pct < 10 ? "error" : "muted" }, `${pct}% free`)));
+      })))));
+  }
+  if (x.software && x.software.length) {
+    const filter = h("input", { type: "search", placeholder: `Filter ${x.software.length} programs` });
+    const body = h("tbody", {});
+    const fill = () => {
+      const q = filter.value.toLowerCase();
+      body.replaceChildren(...x.software.filter((p) => !q || (p.name || "").toLowerCase().includes(q) || (p.publisher || "").toLowerCase().includes(q))
+        .map((p) => h("tr", {}, h("td", {}, p.name), h("td", {}, p.version || ""), h("td", {}, p.publisher || ""))));
+    };
+    filter.addEventListener("input", fill);
+    fill();
+    out.push(h("details", {}, h("summary", {}, `Installed programs (${x.software.length})`),
+      h("label", { class: "field" }, h("span", {}, "Filter"), filter),
+      h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Name"), h("th", {}, "Version"), h("th", {}, "Publisher"))), body))));
+  }
+  return out;
+}
+
+// ---------- updates ----------
+
+async function updatesView() {
+  const res = await api("GET", "/api/admin/releases");
+  const rels = res.releases || [];
+  const file = h("input", { type: "file", accept: ".zip,application/zip", required: true });
+  const status = h("p", { class: "muted" });
+  const upload = h("form", {
+    class: "panel", onsubmit: async (e) => {
+      e.preventDefault();
+      const f = file.files[0];
+      if (!f) return;
+      status.textContent = `Uploading ${f.name} (${(f.size / 1e6).toFixed(0)} MB)…`;
+      const r = await fetch("/api/admin/releases", { method: "POST", headers: { Authorization: "Bearer " + S.token, "Content-Type": "application/zip" }, body: f });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) { status.textContent = data.error || `Upload failed (HTTP ${r.status})`; status.className = "error"; return; }
+      toast(`Build ${data.build} uploaded`); render();
+    },
+  },
+  h("h2", {}, "Upload a build"),
+  h("p", { class: "muted" }, "Download rd-windows-x64.zip from the Windows client run in GitHub Actions and upload it here unchanged."),
+  h("label", { class: "field" }, h("span", {}, "rd-windows-x64.zip"), file),
+  h("button", { class: "btn primary", type: "submit" }, "Upload"), status);
+
+  const current = rels.find((r) => r.current);
+  const rows = rels.map((r) => h("tr", {},
+    h("td", {}, `Build ${r.build}`, r.current ? h("span", { class: "pill" }, " Rolling out") : null),
+    h("td", {}, r.version || "-"),
+    h("td", {}, when(r.created_at)),
+    h("td", { class: "num" }, `${r.devices}`),
+    h("td", { class: "num" },
+      r.current
+        ? h("button", { class: "btn", onclick: async () => { await api("PUT", "/api/admin/releases/current", { build: 0 }); toast("Roll-out stopped"); render(); } }, "Stop roll-out")
+        : h("button", {
+          class: "btn primary", onclick: async () => {
+            if (!confirm(`Update every online device on an older build to build ${r.build}? Each device restarts its RD service; open sessions to it drop for about a minute.`)) return;
+            await api("PUT", "/api/admin/releases/current", { build: r.build }); toast(`Rolling out build ${r.build}`); render();
+          },
+        }, "Roll out"), " ",
+      r.current ? null : h("button", {
+        class: "btn link", onclick: async () => {
+          if (!confirm(`Delete build ${r.build}?`)) return;
+          try { await api("DELETE", "/api/admin/releases/" + r.build); render(); } catch (ex) { alert(ex.message); }
+        },
+      }, "Delete"))));
+  const byBuild = {};
+  for (const d of S.devices) byBuild[d.build || 0] = (byBuild[d.build || 0] || 0) + 1;
+  const behind = current ? S.devices.filter((d) => d.build && d.build < current.build) : [];
+  const list = h("div", { class: "panel" }, h("h2", {}, "Builds"),
+    current ? h("p", {}, `Rolling out build ${current.build}: ${behind.length} device${behind.length === 1 ? "" : "s"} still on an older build. Online devices get the update within a few minutes; offline ones when they come back.`)
+      : h("p", { class: "muted" }, "No roll-out. Devices keep their build until you roll one out."),
+    res.unknown_build_devices ? h("p", { class: "muted" }, `${res.unknown_build_devices} device(s) run a client from before auto-update and need install.ps1 once more.`) : null,
+    h("div", { class: "table-wrap" }, h("table", {},
+      h("thead", {}, h("tr", {}, h("th", {}, "Build"), h("th", {}, "Version"), h("th", {}, "Uploaded"), h("th", { class: "num" }, "Devices on it"), h("th", {}, ""))),
+      h("tbody", {}, rows.length ? rows : h("tr", {}, h("td", { colspan: 5, class: "empty" }, "No builds uploaded yet."))))));
+  void byBuild;
+  return [
+    h("div", { class: "head" }, h("div", {}, h("h1", {}, "Updates"), h("div", { class: "sub" }, "Upload client builds and roll them out to your devices"))),
+    h("div", { class: "split" }, upload, list),
+  ];
 }
 
 let catCache = null;
@@ -703,13 +811,14 @@ async function render() {
   const [, section = "devices", arg] = (location.hash || "#/devices").split("/");
   clearInterval(S.timer);
   try {
-    if (!S.devices.length && !S.groups.length || section === "devices") await loadFleet();
+    if (!S.devices.length && !S.groups.length || section === "devices" || section === "updates") await loadFleet();
     let content;
     switch (section) {
       case "jobs": content = arg ? await jobView(arg) : await jobsView(); break;
       case "scripts": content = await scriptsView(arg); break;
       case "settings": content = await settingsView(arg); break;
       case "enrol": content = await enrolView(); break;
+      case "updates": content = await updatesView(); break;
       default: content = devicesView(arg ? decodeURIComponent(arg) : null);
     }
     if (seq !== renderSeq) return;

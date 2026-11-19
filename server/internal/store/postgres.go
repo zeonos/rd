@@ -400,12 +400,13 @@ func (p *Postgres) SetPolicy(ctx context.Context, scope int64, values map[string
 // --- devices ---
 
 const deviceCols = `id, uuid, group_id, hostname, username, os, cpu, memory, version, alias, note,
-	password_h1, public_key, conns, last_seen, created_at, updated_at`
+	password_h1, public_key, conns, last_seen, created_at, updated_at, ip, build, inventory_at`
 
 func scanDevice(row pgx.Row) (*Device, error) {
 	var d Device
 	err := row.Scan(&d.ID, &d.UUID, &d.GroupID, &d.Hostname, &d.Username, &d.OS, &d.CPU, &d.Memory,
-		&d.Version, &d.Alias, &d.Note, &d.PasswordH1, &d.PublicKey, &d.Conns, &d.LastSeen, &d.CreatedAt, &d.UpdatedAt)
+		&d.Version, &d.Alias, &d.Note, &d.PasswordH1, &d.PublicKey, &d.Conns, &d.LastSeen, &d.CreatedAt, &d.UpdatedAt,
+		&d.IP, &d.Build, &d.InventoryAt)
 	if err != nil {
 		return nil, notFound(err)
 	}
@@ -469,9 +470,10 @@ func (p *Postgres) EnrollDevice(ctx context.Context, d *Device) error {
 func (p *Postgres) UpdateSysinfo(ctx context.Context, id string, u SysinfoUpdate) error {
 	return affected(p.pool.Exec(ctx,
 		`UPDATE devices SET hostname=$2, username=$3, os=$4, cpu=$5, memory=$6, version=$7,
-		   password_h1 = CASE WHEN $8 <> '' THEN $8 ELSE password_h1 END, updated_at=now()
+		   password_h1 = CASE WHEN $8 <> '' THEN $8 ELSE password_h1 END,
+		   build = CASE WHEN $9 > 0 THEN $9 ELSE build END, updated_at=now()
 		 WHERE id=$1`,
-		id, u.Hostname, u.Username, u.OS, u.CPU, u.Memory, u.Version, u.PasswordH1))
+		id, u.Hostname, u.Username, u.OS, u.CPU, u.Memory, u.Version, u.PasswordH1, u.Build))
 }
 
 func (p *Postgres) Heartbeat(ctx context.Context, id string, conns int, at time.Time) error {

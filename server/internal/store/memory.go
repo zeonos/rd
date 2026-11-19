@@ -18,6 +18,7 @@ type Memory struct {
 	tokens    map[int64]*EnrollToken
 	policies  map[int64]map[string]string
 	jobState  *memJobs
+	fleet     *memFleet
 	nextID    int64
 	nowSource func() time.Time
 }
@@ -426,6 +427,9 @@ func (m *Memory) UpdateSysinfo(ctx context.Context, id string, u SysinfoUpdate) 
 	d.Hostname, d.Username, d.OS, d.CPU, d.Memory, d.Version = u.Hostname, u.Username, u.OS, u.CPU, u.Memory, u.Version
 	if u.PasswordH1 != "" {
 		d.PasswordH1 = u.PasswordH1
+	}
+	if u.Build > 0 {
+		d.Build = u.Build
 	}
 	d.UpdatedAt = m.nowSource()
 	return nil

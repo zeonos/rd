@@ -33,6 +33,11 @@ type Config struct {
 	// long, and another when it returns. 0 disables.
 	OfflineAlert time.Duration
 	Logger       *slog.Logger
+	// DataDir holds uploaded client releases (DataDir/releases).
+	DataDir string
+	// DiskAlertPercent alerts when a disk in a device inventory has less free
+	// space than this. 0 disables.
+	DiskAlertPercent int
 }
 
 type Server struct {
@@ -46,6 +51,7 @@ type Server struct {
 	pendingTFA map[string]pendingTFA // secret -> pending second factor
 	signKey    ed25519.PrivateKey    // job signing key, loaded on first use
 	offline    map[string]bool       // devices we have alerted as offline; nil until the first check
+	diskAlerts map[string]time.Time  // device+disk -> last low-disk alert
 
 	mux *http.ServeMux
 }
@@ -135,13 +141,26 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/admin/jobs/{id}", s.requireAdmin(s.adminGetJob))
 	m.HandleFunc("POST /api/admin/jobs/{id}/cancel", s.requireAdmin(s.adminCancelJob))
 
+	// Fleet: inventory, releases and auto-update (fleet.go)
+	m.HandleFunc("POST /api/agent/inventory", s.handleAgentInventory)
+	m.HandleFunc("GET /api/releases/{file}", s.handleReleaseDownload)
+	m.HandleFunc("GET /api/admin/devices/{id}/inventory", s.requireAdmin(s.adminDeviceInventory))
+	m.HandleFunc("GET /api/admin/releases", s.requireAdmin(s.adminListReleases))
+	m.HandleFunc("POST /api/admin/releases", s.requireAdmin(s.adminUploadRelease))
+	m.HandleFunc("PUT /api/admin/releases/current", s.requireAdmin(s.adminSetCurrentRelease))
+	m.HandleFunc("DELETE /api/admin/releases/{build}", s.requireAdmin(s.adminDeleteRelease))
+
 	m.Handle("GET /{$}", console.Index())
 	m.Handle("GET /static/", console.Static())
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	limit := int64(1 << 20)
+	if r.URL.Path == "/api/admin/releases" {
+		limit = maxReleaseBytes
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	start := time.Now()
 	rec := &statusRecorder{ResponseWriter: w, status: 200}
 	s.mux.ServeHTTP(rec, r)
@@ -165,6 +184,7 @@ func (s *Server) Maintain(ctx context.Context) {
 				s.cfg.Logger.Error("expire job runs", "err", err)
 			}
 			s.checkOffline(ctx, now)
+			s.autoUpdate(ctx, now)
 			if tick%10 != 0 {
 				continue
 			}

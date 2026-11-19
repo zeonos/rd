@@ -69,6 +69,10 @@ type Device struct {
 	LastSeen  *time.Time
 	CreatedAt time.Time
 	UpdatedAt time.Time
+
+	IP          string     // public address of the last heartbeat
+	Build       int        // RD build number the client reports; 0 = unknown
+	InventoryAt *time.Time // when the agent last sent its inventory
 }
 
 // Online reports whether the device sent a heartbeat recently.
@@ -104,10 +108,12 @@ type SysinfoUpdate struct {
 	Memory     string
 	Version    string
 	PasswordH1 string // empty = leave unchanged
+	Build      int    // RD build number; 0 = leave unchanged
 }
 
 type Store interface {
 	JobStore
+	FleetStore
 	Close()
 
 	// Users

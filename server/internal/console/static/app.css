@@ -177,3 +177,8 @@ dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top
   .opt { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+.pill { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px; background: var(--accent, #0f6e74); color: #fff; font-size: 12px; font-weight: 600; }
+details { margin-top: 14px; }
+details > summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
+input[type="file"] { padding: 6px 0; }

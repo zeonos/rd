@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/zeonos/rd/server/internal/auth"
@@ -46,6 +47,11 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.Heartbeat(r.Context(), req.ID, len(req.Conns), s.now()); err != nil {
 		s.cfg.Logger.Error("heartbeat", "err", err)
 	}
+	if ip := s.clientIP(r); ip != "" && ip != d.IP {
+		if err := s.store.SetDeviceIP(r.Context(), req.ID, ip); err != nil {
+			s.cfg.Logger.Error("heartbeat ip", "err", err)
+		}
+	}
 	resp := map[string]any{}
 	if d.Hostname == "" {
 		resp["sysinfo"] = true // never reported: ask for it once
@@ -69,6 +75,8 @@ type sysinfoRequest struct {
 	PasswordH1 string `json:"rd_pw_h1"`
 	// Added by the RD client patch: the device's Ed25519 public key (base64).
 	PublicKey string `json:"rd_pk"`
+	// Added by the RD client patch: CI build number of the RD client.
+	Build string `json:"rd_build"`
 }
 
 // handleSysinfo answers in plain text like RustDesk Server Pro:
@@ -97,7 +105,7 @@ func (s *Server) handleSysinfo(w http.ResponseWriter, r *http.Request) {
 	}
 	err = s.store.UpdateSysinfo(r.Context(), req.ID, store.SysinfoUpdate{
 		Hostname: req.Hostname, Username: req.Username, OS: req.OS, CPU: req.CPU,
-		Memory: req.Memory, Version: req.Version, PasswordH1: h1,
+		Memory: req.Memory, Version: req.Version, PasswordH1: h1, Build: atoiOr0(req.Build),
 	})
 	if err != nil {
 		s.cfg.Logger.Error("sysinfo", "err", err)
@@ -308,4 +316,12 @@ func (s *Server) handlePeers(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusOK, paged{Total: len(out), Data: out})
+}
+
+func atoiOr0(s string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
 }

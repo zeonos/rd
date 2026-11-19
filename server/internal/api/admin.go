@@ -13,22 +13,25 @@ import (
 )
 
 type deviceJSON struct {
-	ID         string     `json:"id"`
-	Alias      string     `json:"alias"`
-	Hostname   string     `json:"hostname"`
-	Username   string     `json:"username"`
-	OS         string     `json:"os"`
-	CPU        string     `json:"cpu"`
-	Memory     string     `json:"memory"`
-	Version    string     `json:"version"`
-	Note       string     `json:"note"`
-	GroupID    *int64     `json:"group_id"`
-	Group      string     `json:"group"`
-	Online     bool       `json:"online"`
-	Conns      int        `json:"conns"`
-	LastSeen   *time.Time `json:"last_seen"`
-	Unattended bool       `json:"unattended"` // h1 reported: viewer can connect without a password
-	CreatedAt  time.Time  `json:"created_at"`
+	ID          string     `json:"id"`
+	Alias       string     `json:"alias"`
+	Hostname    string     `json:"hostname"`
+	Username    string     `json:"username"`
+	OS          string     `json:"os"`
+	CPU         string     `json:"cpu"`
+	Memory      string     `json:"memory"`
+	Version     string     `json:"version"`
+	Note        string     `json:"note"`
+	GroupID     *int64     `json:"group_id"`
+	Group       string     `json:"group"`
+	Online      bool       `json:"online"`
+	Conns       int        `json:"conns"`
+	LastSeen    *time.Time `json:"last_seen"`
+	Unattended  bool       `json:"unattended"` // h1 reported: viewer can connect without a password
+	CreatedAt   time.Time  `json:"created_at"`
+	IP          string     `json:"ip"`
+	Build       int        `json:"build"`
+	InventoryAt *time.Time `json:"inventory_at"`
 }
 
 func (s *Server) toDeviceJSON(d *store.Device) deviceJSON {
@@ -37,6 +40,7 @@ func (s *Server) toDeviceJSON(d *store.Device) deviceJSON {
 		Memory: d.Memory, Version: d.Version, Note: d.Note, GroupID: d.GroupID, Group: groupName(d),
 		Online: d.Online(s.now()), Conns: d.Conns, LastSeen: d.LastSeen,
 		Unattended: d.PasswordH1 != "", CreatedAt: d.CreatedAt,
+		IP: d.IP, Build: d.Build, InventoryAt: d.InventoryAt,
 	}
 }
 

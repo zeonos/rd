@@ -4720,16 +4720,19 @@ pub async fn handle_hash(
             lc.write().unwrap().password_source = PasswordSource::SharedAb(shared_password);
         }
     }
+    // personal ab password
+    // RD: the server's address book holds the device's current unattended
+    // hash, so it goes before the password saved for this peer, which is
+    // stale once the device is reinstalled and gets a new password.
+    if password.is_empty() {
+        try_get_password_from_personal_ab(lc.clone(), &mut password);
+    }
     // peer config password
     if password.is_empty() {
         password = lc.read().unwrap().config.password.clone();
         if !password.is_empty() {
             lc.write().unwrap().password_source = Default::default();
         }
-    }
-    // personal ab password
-    if password.is_empty() {
-        try_get_password_from_personal_ab(lc.clone(), &mut password);
     }
 
     if password.is_empty() {

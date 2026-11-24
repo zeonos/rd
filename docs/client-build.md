@@ -41,6 +41,11 @@ All changes are in `patches/0001-rd-fork.patch` (applied to `client/`):
 | `client/src/common.rs` | hook: load the built-in config; `read_custom_client` split so it can be reused |
 | `client/src/hbbs_http/sync.rs` | hook: add the hash to the sysinfo upload |
 | `client/src/lib.rs` | `mod rd;` |
+| `client/src/rd/fleet.rs` | new: inventory (every 6 h), Syncthing status (every 5 min), self-update from signed update jobs, RDP session picker |
+| `client/src/rd/inventory.ps1`, `client/src/rd/syncthing.ps1` | new: the probes the agent runs; output is posted signed |
+| `client/src/client.rs` | login tries the server's address-book hash before a password saved for the peer |
+| `client/flutter/lib/rd/` | new: RD screens (sign-in, devices, session toolbar, settings, mobile) hooked into upstream pages |
+| icons, fonts | RD mark in `res/`, the Windows runner and Android mipmaps; IBM Plex fonts |
 
 Settings applied by `config.json`:
 
@@ -53,10 +58,12 @@ Settings applied by `config.json`:
 
 Job runner limits in this version: scripts run as SYSTEM only (choosing
 "Logged-on user" reports an error), output is capped at 256 KB, and jobs are
-picked up within about 10 seconds while the device is online.
+picked up within about 10 seconds while the device is online. Script
+variables arrive as lines in front of the body (see `docs/scripts.md`).
 
-The executable is renamed to `RD.exe` when packaging (RustDesk's installer expects `<app-name>.exe`). Icons are still RustDesk's.
-A full rebrand (exe name, icons, Windows resources) is a later task.
+The executable is renamed to `RD.exe` when packaging (RustDesk's installer
+expects `<app-name>.exe`). The CI build number is written to `RD_BUILD` and
+to `rd-build.txt` in the zip, and the console uses it for updates.
 
 ## Updating to a new RustDesk release
 

@@ -99,6 +99,33 @@ Expected: 22, 80, 443, 21115–21117/tcp open, 21116/udp open|filtered,
 21118–21119 closed. SSL Labs (https://www.ssllabs.com/ssltest/) should grade
 the domain A or better.
 
+## Changes since the review (November 2026)
+
+- **Remember this browser (console):** after a TOTP login with the box
+  ticked, the server sets `__Host-rd_trust`: HttpOnly, Secure,
+  SameSite=Strict, valid for 30 days. Its value is an HMAC (server-side key in
+  `server_keys`) over the user ID, the expiry, and a hash of the user's
+  password hash and TOTP secret. Changing either revokes every remembered
+  browser. The cookie only skips the code: the password is still required,
+  and the RustDesk client never gets the skip. Risk accepted: someone who
+  steals the cookie from that browser and also knows the password can sign in
+  without the code, for up to 30 days.
+- **Script variables:** values are resolved when a job is created and placed
+  in front of the body inside the signed job payload, as single-quoted
+  PowerShell strings or quoted `set` lines with `%` doubled. Line breaks are
+  refused. Values are not secrets: they are visible in the console and stored
+  per run. Do not put passwords in variables.
+- **Syncthing reports** are signed with the device key like inventories
+  (`rd-sync\n<id>\n<sha256(report)>\n<ts>`). The agent reads Syncthing's API
+  key from its local config and uses it on 127.0.0.1 only. The key is never
+  sent to the server.
+- **Saved peer passwords (client):** the app now tries the address-book hash
+  from the server before a password saved for that peer, so a reinstalled
+  device works without clearing anything. The saved one is still used for
+  devices outside the address book.
+- **Browser viewer clipboard:** text only. The page reads your clipboard only
+  after you click "Send clipboard" and the browser grants access.
+
 ## Open high-severity findings
 
 None.

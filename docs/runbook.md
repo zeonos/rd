@@ -51,6 +51,12 @@ Console → device → **Remove device**, then on the machine:
 & "C:\Program Files\RD\RD.exe" --uninstall
 ```
 
+## Scripts, variables and schedules
+
+All in the console; see [Scripts](scripts.md). Nothing to do on the server.
+Schedules run from the API container, so they pause while it is down and
+catch up once (not once per missed run) when it is back.
+
 ## Android app
 
 See `docs/android.md` (install, release signing key).
@@ -59,8 +65,9 @@ See `docs/android.md` (install, release signing key).
 
 ntfy (`ALERT_NTFY_URL` in `/opt/rd/deploy/.env`) gets: logins and lockouts,
 enrolments, devices offline for `ALERT_OFFLINE_MINUTES` (and back), failed
-jobs, disks below `ALERT_DISK_PERCENT` free (once a day per disk). After
-changing `.env`:
+jobs and schedules that skipped devices, disks below `ALERT_DISK_PERCENT` free
+(once a day per disk), and Syncthing out of sync for `ALERT_SYNC_MINUTES`
+(and back). After changing `.env`:
 
 ```bash
 cd /opt/rd/deploy && docker compose --profile api up -d api
@@ -125,7 +132,10 @@ ln -sf /opt/rd/deploy/backup.sh /etc/cron.daily/rd-backup
 |---|---|
 | Viewer "connecting to RD network" forever | `docker compose logs --tail=50 hbbs` on the server; `test-connection.ps1` on the viewer PC |
 | "Failed to secure tcp" | hbbs image older than the key-exchange fix: pull and restart hbbs |
-| "Wrong password" on unattended connect | device has not reported its hash yet: restart its RD service, then Refresh in the viewer |
+| "Wrong password" in the app, browser viewer works | the app has the device's old password saved (device reinstalled): run `scripts/clear-saved-password.ps1 -Id <ID>` on your PC, see [User guide](user-guide.md#wrong-password-after-a-device-was-reinstalled) |
+| "Wrong password" in the app and the browser viewer | device has not reported its hash yet: restart its RD service, then connect again |
+| Script refused: "Variables without a value on …" | set the variable for those devices under Variables, or type a value in the run dialog ([Scripts](scripts.md#variables)) |
+| Syncthing "not reachable" or "No report since" | see [Syncthing](syncthing.md#when-it-says-not-reachable); "No report" also means the device is on a build before 28 |
 | Job stays "Waiting" | device offline, or a client older than the job runner; device log `C:\Windows\ServiceProfiles\LocalService\AppData\Roaming\RD\log` or `C:\Windows\System32\config\systemprofile\AppData\Roaming\RD\log` |
 | Update never arrives | console → Updates: is a build rolled out? device build "–" means it needs `install.ps1` once; failed update jobs show in Jobs |
 

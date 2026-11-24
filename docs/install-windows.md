@@ -1,46 +1,82 @@
 # Installing on Windows
 
-Works on Windows Server 2022 and Windows 11. UAC disabled is fine.
+Works on 64-bit Windows 10/11 and Windows Server (tested on Server 2022).
 
-1. On the server, create an enrolment token:
-   ```bash
-   docker compose exec api rd-api token create --group "Office" --max-uses 20 --expires-hours 72
-   ```
-   Leave out `--group` to let each install choose with `-Group`.
-2. Copy the `rd-windows-x64` build to the machine (or a share).
-3. Run as Administrator (or as SYSTEM from Gizmo / GPO / Intune):
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File install.ps1 -Token rde_xxx -Group "Office/Rack 1"
-   ```
+## 1. Create an enrolment token
 
-What `install.ps1` does:
+Console → **Enrolment** → **New enrolment token**. Pick the location (or
+leave it empty to choose one per install), how many devices it may enrol, and
+how long it is valid.
 
-1. `RD.exe --silent-install` — installs to `C:\Program Files\RD` as a service
-   that starts at boot, before anyone logs on.
-2. `--password <random>` — a random unattended password that is never written
-   down. The client reports only `sha256(password + salt)` to the API server.
-3. `--assign --token … --device_name … --device_group_name …` — registers the
-   device on the server in its location.
+![Enrolment tokens and locations](images/console-enrolment.png)
+
+## 2. Install with one line
+
+On the machine, open PowerShell **as Administrator** and run:
+
+```powershell
+irm "https://rd.sfohosting.dk/install?token=<token>" | iex
+```
+
+To choose the location or force WebSocket (sites where only outbound 443 is
+open):
+
+```powershell
+& ([scriptblock]::Create((irm https://rd.sfohosting.dk/install))) -Token <token> -Group "Branches/North" -WebSocket
+```
+
+The installer:
+
+1. downloads the client build that is rolled out in the console (or the newest
+   uploaded one), and checks its SHA-256;
+2. installs RD to `C:\Program Files\RD` as a service that starts at boot,
+   before anyone signs in, with no tray icon and no prompt on screen;
+3. sets a random unattended password that is never shown or stored anywhere.
+   The device reports only a hash of it;
+4. enrols the device in the token's location and restarts the service, so the
+   device shows online in the console within a minute.
 
 Log: `C:\ProgramData\RD\install.log`.
 
+### Offline or from a share
+
+Download `rd-windows-x64` from the green **Windows client** run in GitHub
+Actions, unzip it, and run as Administrator (or as SYSTEM from Gizmo, GPO or
+Intune):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install.ps1 -Token <token> -Group "Branches/North"
+```
+
+`test-connection.ps1` in the same folder checks DNS, the ports, TLS and the
+API, and says whether the site needs `-WebSocket`.
+
 ## Connecting
 
-On your own PC (installed the same way, or just run `rd\RD.exe` from the package):
-Account → Log in → username, password, then the authenticator code.
-The address book lists every device tagged with its location; double-click to
-connect. No password prompt: the viewer uses the hash from the address book.
+See the [User guide](user-guide.md): sign in to the RD app or the browser
+viewer and double-click the device. You get no password prompt.
 
-Ctrl+Alt+Del, monitor switching, clipboard and file copy/paste, and
-reboot ("Restart remote device" in the session toolbar) are standard RustDesk
-features and need no extra setup.
+## Reinstalling
 
-## Re-installing or moving a machine
+Run the installer again with a valid token. A reinstall gives the device a
+new unattended password, and the server replaces the old one.
 
-Run `install.ps1` again with a valid token. A reinstall gets a new machine UUID
-and a new unattended password; the server replaces the old ones.
-To move a device without reinstalling: `rd-api device move <id> "New location"`.
+On your own PC, builds up to 28 of the RD app may then say **"Wrong
+password"** for that device, because they try the password they saved last
+time. Clear it with `scripts/clear-saved-password.ps1 -Id <device ID>` (see
+the [User guide](user-guide.md#wrong-password-after-a-device-was-reinstalled)).
+Later builds use the server's password first.
 
-## Uninstalling
+## Updating
 
-`"C:\Program Files\RD\RD.exe" --uninstall`, then `rd-api device delete <id>`.
+Installed devices update themselves when you roll out a build in the console
+(**Updates**). You do not need to run the installer again.
+
+## Moving or removing
+
+- Move to another location: console → device → **Move**.
+- Remove: console → device → **Remove device**, then on the machine:
+
+```powershell
+& "C:\Program Files\RD\RD.exe" --uninstall
+```

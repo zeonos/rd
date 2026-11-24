@@ -105,21 +105,15 @@ Useful commands (all `docker compose exec api rd-api ...`):
 
 ## 7. Web console
 
-Open `https://rd.sfohosting.dk` and log in with the admin account and your
-authenticator code. Browser sessions last at most 12 hours.
+Open `https://rd.sfohosting.dk` and sign in with the admin account and your
+authenticator code. You can tick "Remember this browser for 30 days".
+Browser sessions last at most 12 hours.
 
-- **Devices:** live status by location, details, rename, move, remove; select
-  devices to run a script or restart them.
-- **Jobs:** results per device with output; cancel devices that have not
-  picked a job up yet.
-- **Scripts:** saved PowerShell / cmd scripts.
-- **Settings:** account-wide device settings with per-location overrides;
-  devices apply changes within about a minute.
-- **Enrolment:** create install tokens and manage locations.
+![The console](images/console-devices.png)
 
-Scripts and power actions need the agent job runner in the client (phase 2,
-next client release); until then jobs wait for devices and expire after
-their deadline.
+The tabs are Devices, Jobs, Scripts, Variables, Settings, Updates and
+Enrolment. They are described in the [User guide](user-guide.md) and
+[Scripts](scripts.md).
 
 ## 8. Updating
 
@@ -132,9 +126,15 @@ docker compose --profile api up -d --build
 ## 9. Alerts
 
 Set `ALERT_NTFY_URL` in `/opt/rd/deploy/.env` to an [ntfy](https://ntfy.sh) topic
-(install the ntfy app on your phone and subscribe to the same topic). You get a
-push for: every login, login lockouts, new enrolments, a device offline for
-`ALERT_OFFLINE_MINUTES` (default 10) and back online, and failed jobs.
+(install the ntfy app on your phone and subscribe to the same topic).
+
+| Alert | Setting in `.env` (0 = off) |
+| --- | --- |
+| Every login, login lockouts, new enrolments | always on |
+| Device offline, and back online | `ALERT_OFFLINE_MINUTES` (default 10) |
+| Failed jobs, schedules that skipped devices | always on |
+| Disk below this % free, once a day per disk | `ALERT_DISK_PERCENT` (default 10) |
+| Syncthing out of sync this long, and back in sync | `ALERT_SYNC_MINUTES` (default 240) |
 
 ## 10. Backups
 

@@ -59,10 +59,10 @@ h1 { font-size: 26px; font-weight: 600; margin: 0 0 6px; }
 .seg button { height: 34px; min-width: 40px; padding: 0 12px; border: 0; background: #fff; color: var(--ink); font: 500 14px var(--font); cursor: pointer; }
 .seg button + button { border-left: 1px solid var(--line-strong); }
 .seg button[aria-pressed="true"] { background: var(--fjord); color: #fff; font-weight: 600; }
-.stage { position: relative; flex: 1; overflow: auto; background: #0c1416; }
+.stage { position: relative; flex: 1; min-height: 0; overflow: auto; background: #0c1416; }
 .stage canvas { display: block; outline: none; cursor: default; }
 .stage.fit { overflow: hidden; display: grid; place-items: center; }
-.stage.fit canvas { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; }
+/* fit: the canvas size is set from the stage in app.ts */
 .overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: #fff; background: rgba(12, 20, 22, .85); padding: 24px; text-align: center; }
 .overlay[hidden] { display: none; }
 @media (max-width: 640px) { .row { grid-template-columns: 18px 1fr; } .row > :nth-child(n+3) { display: none; } }

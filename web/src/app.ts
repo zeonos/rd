@@ -223,6 +223,18 @@ async function renderSession(id: string) {
   const screens = h("div", { class: "group" });
   let scale = "fit";
   let disp: Display = { x: 0, y: 0, width: 0, height: 0 };
+  // Fit window: size the canvas from the space the stage really has, so the
+  // whole remote screen shows whatever the browser zoom or toolbar height.
+  const fit = () => {
+    if (scale !== "fit" || !canvas.width || !canvas.height) {
+      canvas.style.width = canvas.style.height = "";
+      return;
+    }
+    const k = Math.min(stage.clientWidth / canvas.width, stage.clientHeight / canvas.height);
+    canvas.style.width = `${Math.floor(canvas.width * k)}px`;
+    canvas.style.height = `${Math.floor(canvas.height * k)}px`;
+  };
+  new ResizeObserver(fit).observe(stage);
 
   const sess: Session = new Session(
     {
@@ -249,6 +261,7 @@ async function renderSession(id: string) {
         if (canvas.width !== f.displayWidth || canvas.height !== f.displayHeight) {
           canvas.width = f.displayWidth;
           canvas.height = f.displayHeight;
+          fit();
         }
         ctx.drawImage(f, 0, 0);
         f.close();
@@ -403,6 +416,7 @@ async function renderSession(id: string) {
     segmented("Scale", [["fit", "Fit window"], ["100", "100%"]], scale, (v) => {
       scale = v;
       stage.classList.toggle("fit", v === "fit");
+      fit();
       canvas.focus();
     }),
     segmented("Quality", [["Best", "Best"], ["Balanced", "Balanced"], ["Low", "Fast"]], "Balanced", (v) => {
